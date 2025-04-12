@@ -1,5 +1,6 @@
 import discord
 from openai import OpenAI
+import os
 
 # 본인의 API 키 입력
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
