@@ -1,0 +1,172 @@
+import unittest
+from types import SimpleNamespace as NS
+from unittest.mock import AsyncMock
+
+import discord
+from aiohttp import web
+from hindsight_client_api.exceptions import ApiException
+
+from main import Bot, Memory, bank_for, parse_command, send_text
+
+
+class Typing:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+
+def message(text, user=10, guild=20, channel=30, bot=False):
+    return NS(content=text, id=99, author=NS(id=user, bot=bot),
+              guild=NS(id=guild) if guild is not None else None,
+              channel=NS(id=channel, send=AsyncMock(), typing=Typing))
+
+
+class BotTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.ai = NS(chat=NS(completions=NS(create=AsyncMock(
+            return_value=NS(choices=[NS(message=NS(content='18L예요.'))])))), close=AsyncMock())
+        self.memory = NS(enabled=True, save=AsyncMock(), recall=AsyncMock(return_value=['버킷은 18L']),
+                         delete=AsyncMock(), close=AsyncMock())
+        self.bot = Bot(self.ai, self.memory, intents=discord.Intents.default())
+        self.bot._connection.user = NS(id=123)
+
+    async def asyncTearDown(self):
+        await self.bot.close()
+
+    def test_exact_command_and_whitespace(self):
+        self.assertIsNone(parse_command('!질문입니다'))
+        self.assertEqual(parse_command('!질문\n 내 버킷?'), ('!질문', '내 버킷?'))
+        self.assertEqual(parse_command('!질문'), ('!질문', ''))
+
+    def test_scope_isolation(self):
+        base = bank_for(message(''), 123)
+        for msg, bot_id in [(message('', user=11),123), (message('', guild=21),123),
+                            (message('', channel=31),123), (message('', guild=None),123),
+                            (message(''),124)]:
+            self.assertNotEqual(base, bank_for(msg, bot_id))
+        self.assertEqual(base, bank_for(message(''),123))
+
+    async def test_question_uses_memory_without_auto_save(self):
+        msg = message('!질문 내 버킷?')
+        await self.bot.on_message(msg)
+        self.memory.recall.assert_awaited_once_with(bank_for(msg,123), '내 버킷?')
+        self.memory.save.assert_not_awaited()
+        prompt = self.ai.chat.completions.create.call_args.kwargs['messages']
+        self.assertIn('18L', prompt[1]['content'])
+        self.assertEqual(prompt[-1]['content'], '내 버킷?')
+
+    async def test_explicit_save(self):
+        msg = message('!기억 버킷은 18L')
+        await self.bot.on_message(msg)
+        self.memory.save.assert_awaited_once_with(bank_for(msg,123), '버킷은 18L',99)
+        self.ai.chat.completions.create.assert_not_awaited()
+
+    async def test_delete_requires_literal_confirmation(self):
+        msg = message('!기억삭제 버킷')
+        await self.bot.on_message(msg)
+        self.memory.delete.assert_not_awaited()
+        msg = message('!기억삭제 확인')
+        await self.bot.on_message(msg)
+        self.memory.delete.assert_awaited_once_with(bank_for(msg,123))
+
+    async def test_disabled_memory_preserves_question(self):
+        self.memory.enabled = False
+        await self.bot.on_message(message('!질문 안녕'))
+        self.ai.chat.completions.create.assert_awaited_once()
+        self.memory.recall.assert_not_awaited()
+        msg = message('!기억 테스트')
+        await self.bot.on_message(msg)
+        self.assertIn('HINDSIGHT_URL', msg.channel.send.call_args.args[0])
+        self.memory.save.assert_not_awaited()
+
+    async def test_recall_failure_falls_back_and_never_leaks_exception(self):
+        self.memory.recall.side_effect = RuntimeError('secret-token')
+        msg = message('!질문 내 버킷?')
+        await self.bot.on_message(msg)
+        self.ai.chat.completions.create.assert_awaited_once()
+        output = msg.channel.send.call_args.args[0]
+        self.assertIn('기억 없이',output)
+        self.assertNotIn('secret-token',output)
+
+    async def test_failed_save_does_not_claim_success(self):
+        self.memory.save.side_effect = TimeoutError('secret-token')
+        msg = message('!기억 내용')
+        await self.bot.on_message(msg)
+        output = msg.channel.send.call_args.args[0]
+        self.assertIn('확인하지 못했',output)
+        self.assertNotIn('secret-token',output)
+
+    async def test_ignores_bots_and_empty_question(self):
+        await self.bot.on_message(message('!질문 안녕',bot=True))
+        await self.bot.on_message(message('!질문'))
+        self.ai.chat.completions.create.assert_not_awaited()
+
+    async def test_long_output_preserves_content_and_disables_mentions(self):
+        channel = message('').channel
+        text = '@everyone ' + '가'*5000
+        await send_text(channel,text)
+        sent = channel.send.call_args_list
+        self.assertEqual(''.join(x.args[0] for x in sent),text)
+        for call in sent:
+            self.assertLessEqual(len(call.args[0]),1900)
+            self.assertFalse(call.kwargs['allowed_mentions'].everyone)
+
+
+class SDKTests(unittest.IsolatedAsyncioTestCase):
+    """실제 설치한 Hindsight SDK의 HTTP 직렬화·응답 파싱을 로컬 서버로 확인."""
+    async def asyncSetUp(self):
+        self.requests = []
+        self.status = 200
+        self.success = True
+        async def handle(request):
+            body = await request.json() if request.method == 'POST' else None
+            self.requests.append((request.method,request.path,body,request.headers.get('Authorization')))
+            if self.status != 200:
+                return web.json_response({'detail':'failure'},status=self.status)
+            if request.method == 'POST' and request.path.endswith('/memories'):
+                return web.json_response({'success':self.success,'bank_id':'test','items_count':1,'async':False})
+            if request.path.endswith('/recall'):
+                return web.json_response({'results':[{'id':'1','text':'18L 버킷','type':'world'}]})
+            return web.json_response({'success':True})
+        app = web.Application()
+        app.router.add_route('*','/{path:.*}',handle)
+        self.runner = web.AppRunner(app)
+        await self.runner.setup()
+        site = web.TCPSite(self.runner,'127.0.0.1',0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
+        self.memory = Memory(f'http://127.0.0.1:{port}',api_key='fake-test-key')
+
+    async def asyncTearDown(self):
+        await self.memory.close()
+        await self.runner.cleanup()
+
+    async def test_sdk_save_recall_delete(self):
+        await self.memory.save('test','18L 버킷',99)
+        self.assertEqual(await self.memory.recall('test','버킷?'),['18L 버킷'])
+        await self.memory.delete('test')
+        self.assertEqual([r[0] for r in self.requests],['POST','POST','DELETE'])
+        self.assertTrue(self.requests[0][1].endswith('/banks/test/memories'))
+        self.assertEqual(self.requests[0][2]['items'][0]['content'],'18L 버킷')
+        self.assertEqual(self.requests[0][2]['items'][0]['document_id'],'discord-99')
+        self.assertEqual(self.requests[0][3],'Bearer fake-test-key')
+        self.assertTrue(self.requests[-1][1].endswith('/banks/test'))
+
+    async def test_not_found_is_empty_but_unauthorized_is_error(self):
+        self.status = 404
+        self.assertEqual(await self.memory.recall('test','버킷'),[])
+        await self.memory.delete('test')
+        self.status = 401
+        with self.assertRaises(ApiException):
+            await self.memory.recall('test','버킷')
+
+    async def test_false_success_is_not_saved(self):
+        self.success = False
+        with self.assertRaises(RuntimeError):
+            await self.memory.save('test','18L 버킷',99)
+
+
+if __name__ == '__main__':
+    unittest.main()
