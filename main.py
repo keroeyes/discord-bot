@@ -3,8 +3,11 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
+from time import monotonic
 import weakref
+from collections import OrderedDict
 from datetime import datetime, timezone
 
 import discord
@@ -19,6 +22,27 @@ HELP = (
     '저장한 내용은 Hindsight와 설정된 모델 제공자가 처리하며, 같은 채널의 답변에 사용됩니다.'
 )
 MEMORY_NOT_CONFIGURED = '장기 기억이 아직 연결되지 않았어요. 운영자가 HINDSIGHT_URL을 설정해야 합니다.'
+COST_COMMANDS = {'!질문', '!기억', '!기억검색'}
+
+
+def cost_protection_config():
+    """잘못된 설정은 보호를 조용히 해제하지 않고 시작 시 거부한다."""
+    raw = os.getenv('USER_COOLDOWN_SECONDS', '').strip()
+    try:
+        cooldown = float(raw) if raw else 0.0
+        if not math.isfinite(cooldown) or cooldown < 0:
+            raise ValueError
+    except ValueError:
+        raise ValueError('USER_COOLDOWN_SECONDS는 유한한 0 이상의 초여야 합니다.') from None
+    raw = os.getenv('ALLOWED_GUILD_IDS', '').strip()
+    guilds = set()
+    if raw:
+        for part in raw.split(','):
+            part = part.strip()
+            if not part.isascii() or not part.isdecimal() or int(part) <= 0:
+                raise ValueError('ALLOWED_GUILD_IDS는 쉼표로 구분한 양의 서버 ID여야 합니다.')
+            guilds.add(int(part))
+    return cooldown, guilds
 
 
 def parse_command(content):
@@ -98,6 +122,8 @@ class Bot(discord.Client):
         self.model = os.getenv('OPENAI_MODEL', 'gpt-4o')
         self.locks = weakref.WeakValueDictionary()
         self.capacity = asyncio.Semaphore(4)
+        self.user_cooldown, self.allowed_guilds = cost_protection_config()
+        self.cooldown_until = OrderedDict()
 
     async def on_ready(self):
         log.info('봇 준비 완료. 기억 설정: %s', self.memory.enabled)
@@ -118,6 +144,10 @@ class Bot(discord.Client):
         if parsed is None:
             return
         command, text = parsed
+        if (message.guild is not None and self.allowed_guilds
+                and message.guild.id not in self.allowed_guilds):
+            await send_text(message.channel, '이 서버에서는 봇 명령을 사용할 수 없어요.')
+            return
         if command == '!봇상태':
             state = '설정됨 (실제 연결은 기억 명령 실행 시 확인)' if self.memory.enabled else '미설정'
             await send_text(message.channel, f'봇 버전: hindsight-v1\n모델: {self.model}\n장기 기억: {state}\n{HELP}')
@@ -142,6 +172,17 @@ class Bot(discord.Client):
         if lock.locked():
             await send_text(message.channel, '이전 요청을 처리 중이에요. 답변이 끝난 뒤 다시 입력해주세요.')
             return
+        if command in COST_COMMANDS and self.user_cooldown > 0:
+            now = monotonic()
+            # 만료된 사용자만 제거한다. 검사와 예약 사이에는 await가 없어
+            # 같은 사용자의 다른 채널 요청도 동시에 통과할 수 없다.
+            while self.cooldown_until and next(iter(self.cooldown_until.values())) <= now:
+                self.cooldown_until.popitem(last=False)
+            remaining = self.cooldown_until.get(message.author.id, 0) - now
+            if remaining > 0:
+                await send_text(message.channel, f'비용 보호를 위해 {math.ceil(remaining)}초 후 다시 요청해주세요.')
+                return
+            self.cooldown_until[message.author.id] = now + self.user_cooldown
         async with lock, self.capacity:
             try:
                 async with message.channel.typing():

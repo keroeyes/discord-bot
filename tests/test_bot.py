@@ -1,12 +1,14 @@
+import asyncio
+import os
 import unittest
 from types import SimpleNamespace as NS
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import discord
 from aiohttp import web
 from hindsight_client_api.exceptions import ApiException
 
-from main import Bot, Memory, bank_for, parse_command, send_text
+from main import Bot, Memory, bank_for, cost_protection_config, parse_command, send_text
 
 
 class Typing:
@@ -25,6 +27,9 @@ def message(text, user=10, guild=20, channel=30, bot=False):
 
 class BotTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        self.env = patch.dict(os.environ, {'USER_COOLDOWN_SECONDS': '', 'ALLOWED_GUILD_IDS': ''})
+        self.env.start()
+        self.addCleanup(self.env.stop)
         self.ai = NS(chat=NS(completions=NS(create=AsyncMock(
             return_value=NS(choices=[NS(message=NS(content='18L예요.'))])))), close=AsyncMock())
         self.memory = NS(enabled=True, save=AsyncMock(), recall=AsyncMock(return_value=['버킷은 18L']),
@@ -112,6 +117,97 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
         for call in sent:
             self.assertLessEqual(len(call.args[0]),1900)
             self.assertFalse(call.kwargs['allowed_mentions'].everyone)
+
+
+    def test_cost_config(self):
+        self.assertEqual(cost_protection_config(), (0, set()))
+        with patch.dict(os.environ, USER_COOLDOWN_SECONDS=' 2.5 ', ALLOWED_GUILD_IDS='20, 21,20'):
+            self.assertEqual(cost_protection_config(), (2.5, {20, 21}))
+        for value in ['-1', 'nan', 'inf', 'oops']:
+            with patch.dict(os.environ, USER_COOLDOWN_SECONDS=value):
+                with self.assertRaises(ValueError):
+                    cost_protection_config()
+        for value in ['20,', '0', '-20', 'oops']:
+            with patch.dict(os.environ, ALLOWED_GUILD_IDS=value):
+                with self.assertRaises(ValueError):
+                    cost_protection_config()
+
+    async def test_allowed_guild_and_dm_preserve_banks(self):
+        self.bot.allowed_guilds = {20}
+        for msg in [message('!기억 내용'), message('!기억 내용', guild=None)]:
+            await self.bot.on_message(msg)
+            self.memory.save.assert_awaited_with(bank_for(msg, 123), '내용', 99)
+        self.assertEqual(self.memory.save.await_count, 2)
+
+    async def test_disallowed_guild_blocks_all_commands_without_api(self):
+        self.bot.allowed_guilds = {21}
+        for command in ['!질문 내용', '!기억 내용', '!기억검색 내용', '!기억삭제 확인', '!봇상태']:
+            msg = message(command)
+            await self.bot.on_message(msg)
+            self.assertIn('이 서버', msg.channel.send.call_args.args[0])
+        self.ai.chat.completions.create.assert_not_awaited()
+        self.memory.save.assert_not_awaited()
+        self.memory.recall.assert_not_awaited()
+        self.memory.delete.assert_not_awaited()
+        self.assertFalse(self.bot.cooldown_until)
+
+    async def test_shared_user_cooldown_and_expiry(self):
+        self.bot.user_cooldown = 10
+        with patch('main.monotonic', return_value=100):
+            await self.bot.on_message(message('!기억 내용'))
+            for command in ['!질문 내용', '!기억 내용', '!기억검색 내용']:
+                msg = message(command, guild=None, channel=31)
+                await self.bot.on_message(msg)
+                self.assertIn('10초', msg.channel.send.call_args.args[0])
+            await self.bot.on_message(message('!기억검색 내용', user=11))
+        self.ai.chat.completions.create.assert_not_awaited()
+        self.assertEqual(self.memory.save.await_count, 1)
+        self.assertEqual(self.memory.recall.await_count, 1)
+        with patch('main.monotonic', return_value=110):
+            await self.bot.on_message(message('!질문 내용'))
+        self.ai.chat.completions.create.assert_awaited_once()
+        self.assertNotIn(11, self.bot.cooldown_until)
+
+    async def test_status_delete_and_invalid_requests_do_not_use_cooldown(self):
+        self.bot.user_cooldown = 10
+        for content in ['!질문', '!질문 ' + '가'*6001, '!봇상태', '!기억삭제 확인']:
+            await self.bot.on_message(message(content))
+        self.assertFalse(self.bot.cooldown_until)
+        with patch('main.monotonic', return_value=100):
+            await self.bot.on_message(message('!질문 내용'))
+            await self.bot.on_message(message('!봇상태'))
+            await self.bot.on_message(message('!기억삭제 확인'))
+        self.assertEqual(self.memory.delete.await_count, 2)
+        self.ai.chat.completions.create.assert_awaited_once()
+
+    async def test_concurrent_channels_only_one_cost_request(self):
+        self.bot.user_cooldown = 10
+        with patch('main.monotonic', return_value=100):
+            await asyncio.gather(
+                self.bot.on_message(message('!질문 내용', channel=30)),
+                self.bot.on_message(message('!기억 내용', channel=31)),
+                self.bot.on_message(message('!기억검색 내용', guild=None, channel=32)),
+            )
+        self.assertEqual(self.ai.chat.completions.create.await_count, 1)
+        self.memory.save.assert_not_awaited()
+        self.assertEqual(self.memory.recall.await_count, 1)
+
+    async def test_failed_api_request_keeps_cooldown(self):
+        self.bot.user_cooldown = 10
+        self.memory.save.side_effect = TimeoutError()
+        with patch('main.monotonic', return_value=100):
+            await self.bot.on_message(message('!기억 내용'))
+            await self.bot.on_message(message('!기억 내용', channel=31))
+        self.memory.save.assert_awaited_once()
+
+    async def test_unconfigured_memory_does_not_consume_cooldown(self):
+        self.bot.user_cooldown = 10
+        self.memory.enabled = False
+        await self.bot.on_message(message('!기억 내용'))
+        await self.bot.on_message(message('!기억검색 내용'))
+        self.assertFalse(self.bot.cooldown_until)
+        await self.bot.on_message(message('!질문 내용'))
+        self.ai.chat.completions.create.assert_awaited_once()
 
 
 class SDKTests(unittest.IsolatedAsyncioTestCase):
