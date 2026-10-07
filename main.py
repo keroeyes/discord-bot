@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 HELP = (
     '`!질문 내용` · `!기억 내용` · `!기억검색 검색어` · `!기억삭제 확인` · `!봇상태`\n'
     '기억은 본인·서버·채널별로 분리됩니다. 일반 대화는 자동 저장하지 않습니다.\n'
-    '저장한 내용은 Hindsight와 설정된 모델 제공자가 처리하며, 같은 채널의 답변에 사용됩니다.'
+    '저장한 내용은 Hindsight와 설정된 모델 제공자가 처리하며, 답변에 사용됩니다. 응답 공개 범위는 운영자의 설정에 따릅니다.'
 )
 MEMORY_NOT_CONFIGURED = '장기 기억이 아직 연결되지 않았어요. 운영자가 HINDSIGHT_URL을 설정해야 합니다.'
 COST_COMMANDS = {'!질문', '!기억', '!기억검색'}
@@ -43,6 +43,15 @@ def cost_protection_config():
                 raise ValueError('ALLOWED_GUILD_IDS는 쉼표로 구분한 양의 서버 ID여야 합니다.')
             guilds.add(int(part))
     return cooldown, guilds
+
+
+def private_memory_config():
+    raw = os.getenv('PRIVATE_MEMORY_REPLIES', '').strip().lower()
+    if raw in {'', '0', 'false', 'no', 'off'}:
+        return False
+    if raw in {'1', 'true', 'yes', 'on'}:
+        return True
+    raise ValueError('PRIVATE_MEMORY_REPLIES는 true/false 또는 1/0이어야 합니다.')
 
 
 def parse_command(content):
@@ -124,6 +133,7 @@ class Bot(discord.Client):
         self.capacity = asyncio.Semaphore(4)
         self.user_cooldown, self.allowed_guilds = cost_protection_config()
         self.cooldown_until = OrderedDict()
+        self.private_memory_replies = private_memory_config()
 
     async def on_ready(self):
         log.info('봇 준비 완료. 기억 설정: %s', self.memory.enabled)
@@ -198,6 +208,18 @@ class Bot(discord.Client):
                     reply = '요청을 처리하지 못했어요. 잠시 후 다시 시도해주세요.'
                 await send_text(message.channel, reply)
 
+    async def send_memory_reply(self, message, text):
+        if not self.private_memory_replies or message.guild is None:
+            await send_text(message.channel, text)
+            return
+        try:
+            # 전송 목적지만 바꾸며 bank는 원래 요청의 서버·채널을 유지한다.
+            await send_text(message.author, text)
+        except discord.HTTPException as exc:
+            log.warning('DM 전송 실패: %s', type(exc).__name__)
+            # 일부 조각을 DM으로 보낸 뒤 실패해도 공개 채널로 재전송하지 않는다.
+            await send_text(message.channel, 'DM으로 답변을 보내지 못했어요. DM 수신 설정을 확인해주세요.')
+
     async def handle(self, message, command, text, bank):
         if command == '!기억':
             await self.memory.save(bank, text, message.id)
@@ -205,7 +227,7 @@ class Bot(discord.Client):
             return
         if command == '!기억검색':
             facts = await self.memory.recall(bank, text)
-            await send_text(message.channel, '\n'.join(f'- {fact}' for fact in facts) if facts else '관련 기억이 없어요.')
+            await self.send_memory_reply(message, '\n'.join(f'- {fact}' for fact in facts) if facts else '관련 기억이 없어요.')
             return
         if command == '!기억삭제':
             await self.memory.delete(bank)
@@ -234,7 +256,7 @@ class Bot(discord.Client):
         answer = response.choices[0].message.content
         if memory_failed:
             answer = '※ 기억 조회에 실패하여 이번에는 기억 없이 답합니다.\n' + (answer or '')
-        await send_text(message.channel, answer)
+        await self.send_memory_reply(message, answer)
 
 
 def main():

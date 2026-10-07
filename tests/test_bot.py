@@ -8,7 +8,7 @@ import discord
 from aiohttp import web
 from hindsight_client_api.exceptions import ApiException
 
-from main import Bot, Memory, bank_for, cost_protection_config, parse_command, send_text
+from main import Bot, Memory, bank_for, cost_protection_config, parse_command, private_memory_config, send_text
 
 
 class Typing:
@@ -20,14 +20,14 @@ class Typing:
 
 
 def message(text, user=10, guild=20, channel=30, bot=False):
-    return NS(content=text, id=99, author=NS(id=user, bot=bot),
+    return NS(content=text, id=99, author=NS(id=user, bot=bot, send=AsyncMock()),
               guild=NS(id=guild) if guild is not None else None,
               channel=NS(id=channel, send=AsyncMock(), typing=Typing))
 
 
 class BotTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.env = patch.dict(os.environ, {'USER_COOLDOWN_SECONDS': '', 'ALLOWED_GUILD_IDS': ''})
+        self.env = patch.dict(os.environ, {'USER_COOLDOWN_SECONDS': '', 'ALLOWED_GUILD_IDS': '', 'PRIVATE_MEMORY_REPLIES': ''})
         self.env.start()
         self.addCleanup(self.env.stop)
         self.ai = NS(chat=NS(completions=NS(create=AsyncMock(
@@ -208,6 +208,102 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.bot.cooldown_until)
         await self.bot.on_message(message('!질문 내용'))
         self.ai.chat.completions.create.assert_awaited_once()
+
+    def test_private_reply_config(self):
+        self.assertFalse(private_memory_config())
+        for value in ['true', '1', 'YES', ' on ']:
+            with patch.dict(os.environ, PRIVATE_MEMORY_REPLIES=value):
+                self.assertTrue(private_memory_config())
+                bot = Bot(self.ai, self.memory, intents=discord.Intents.default())
+                self.assertTrue(bot.private_memory_replies)
+        for value in ['', 'false', '0', 'NO', ' off ']:
+            with patch.dict(os.environ, PRIVATE_MEMORY_REPLIES=value):
+                self.assertFalse(private_memory_config())
+        with patch.dict(os.environ, PRIVATE_MEMORY_REPLIES='oops'):
+            with self.assertRaises(ValueError):
+                private_memory_config()
+
+    async def test_public_results_by_default(self):
+        for command, expected in [('!기억검색 버킷', '버킷은 18L'), ('!질문 버킷', '18L예요.')]:
+            msg = message(command)
+            await self.bot.on_message(msg)
+            self.assertIn(expected, msg.channel.send.call_args.args[0])
+            msg.author.send.assert_not_awaited()
+
+    async def test_private_results_keep_original_bank(self):
+        self.bot.private_memory_replies = True
+        for command, expected in [('!기억검색 버킷', '버킷은 18L'), ('!질문 버킷', '18L예요.')]:
+            msg = message(command)
+            await self.bot.on_message(msg)
+            self.assertIn(expected, msg.author.send.call_args.args[0])
+            self.memory.recall.assert_awaited_with(bank_for(msg, 123), '버킷')
+            msg.channel.send.assert_not_awaited()
+            self.assertFalse(msg.author.send.call_args.kwargs['allowed_mentions'].everyone)
+        self.memory.save.assert_not_awaited()
+
+    async def test_private_mode_preserves_dm_bank_and_channel(self):
+        self.bot.private_memory_replies = True
+        for command in ['!기억검색 버킷', '!질문 버킷']:
+            msg = message(command, guild=None)
+            await self.bot.on_message(msg)
+            msg.channel.send.assert_awaited_once()
+            msg.author.send.assert_not_awaited()
+            self.memory.recall.assert_awaited_with(bank_for(msg, 123), '버킷')
+            self.assertNotEqual(bank_for(msg, 123), bank_for(message(command), 123))
+
+    async def test_dm_failures_never_publish_content(self):
+        self.bot.private_memory_replies = True
+        for exception in [discord.Forbidden(NS(status=403, reason='Forbidden'), 'private-secret'),
+                          discord.HTTPException(NS(status=500, reason='Failure'), 'private-secret')]:
+            for command in ['!기억검색 버킷', '!질문 버킷']:
+                msg = message(command)
+                msg.author.send.side_effect = exception
+                await self.bot.on_message(msg)
+                msg.channel.send.assert_awaited_once()
+                output = msg.channel.send.call_args.args[0]
+                self.assertIn('DM', output)
+                for secret in ['18L', 'private-secret', '버킷']:
+                    self.assertNotIn(secret, output)
+
+    async def test_partial_dm_failure_never_falls_back_publicly(self):
+        self.bot.private_memory_replies = True
+        self.memory.recall.return_value = ['private-secret' * 400]
+        msg = message('!기억검색 버킷')
+        msg.author.send.side_effect = [None, discord.Forbidden(NS(status=403, reason='Forbidden'), 'secret')]
+        await self.bot.on_message(msg)
+        self.assertEqual(msg.author.send.await_count, 2)
+        msg.channel.send.assert_awaited_once()
+        self.assertNotIn('private-secret', msg.channel.send.call_args.args[0])
+
+    async def test_private_empty_memory_and_question_fallbacks(self):
+        self.bot.private_memory_replies = True
+        self.memory.recall.return_value = []
+        msg = message('!기억검색 버킷')
+        await self.bot.on_message(msg)
+        self.assertEqual(msg.author.send.call_args.args[0], '관련 기억이 없어요.')
+        msg.channel.send.assert_not_awaited()
+        for state in ['empty', 'failed', 'disabled']:
+            self.memory.enabled = state != 'disabled'
+            self.memory.recall.side_effect = RuntimeError('secret') if state == 'failed' else None
+            msg = message('!질문 버킷')
+            await self.bot.on_message(msg)
+            self.assertIn('18L예요.', msg.author.send.call_args.args[0])
+            if state == 'failed':
+                self.assertIn('기억 없이', msg.author.send.call_args.args[0])
+            msg.channel.send.assert_not_awaited()
+
+    async def test_private_mode_preserves_save_delete_and_generic_errors(self):
+        self.bot.private_memory_replies = True
+        for command in ['!기억 내용', '!기억삭제 확인', '!봇상태', '!질문']:
+            msg = message(command)
+            await self.bot.on_message(msg)
+            msg.channel.send.assert_awaited_once()
+            msg.author.send.assert_not_awaited()
+        self.memory.recall.side_effect = RuntimeError('private-secret')
+        msg = message('!기억검색 버킷')
+        await self.bot.on_message(msg)
+        self.assertNotIn('private-secret', msg.channel.send.call_args.args[0])
+
 
 
 class SDKTests(unittest.IsolatedAsyncioTestCase):
