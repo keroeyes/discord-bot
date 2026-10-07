@@ -57,6 +57,23 @@ URL 설정은 연결 성공을 뜻하지 않습니다. `!기억` → `!기억검
 테스트는 가짜 API와 로컬 HTTP 서버를 사용하므로 실 사용자 정보나 API 키를 보내지 않습니다.
 실제 Discord/Railway/Hindsight 운영 서버 연결 테스트는 별도로 수행해야 합니다.
 
+### 운영 Hindsight 수동 스모크 테스트
+
+`pip install -r requirements.txt` 후 Hindsight 서버에 접근 가능한 환경에서만 실행합니다.
+`HINDSIGHT_URL`은 필수이며, 서버가 인증을 요구하면 `HINDSIGHT_API_KEY`도 설정하세요.
+Discord 토큰과 봇의 OpenAI 키는 필요하지 않습니다. Hindsight 서버의 모델·DB 설정은 필요합니다.
+
+```bash
+python scripts/hindsight_smoke.py --run
+```
+
+매번 고유한 `smoke-<UUID>` bank에 합성 문자열만 retain하고, recall에서 고유 토큰을 확인한 뒤
+bank를 delete합니다. 삭제 후 recall이 HTTP 404를 반환해야 통과하며 실패 시 종료 코드는 1입니다.
+실패 시에도 정리를 시도하고, 정리 실패 또는 프로세스 강제 종료 시 출력된 임시 bank ID를 수동 삭제하세요.
+기존 사용자 bank를 지정하는 옵션은 없으며, 서버의 모델 처리 비용이 발생할 수 있습니다.
+이 스크립트는 기존 13개 테스트와 분리되어 push/PR CI에서 실행되지 않고, `--run`으로만 동작합니다.
+이 검증은 Hindsight 연결만 확인하며 Discord 명령 처리·Railway 재시작 후 지속성은 별도 검증 대상입니다.
+
 ## 공식 참고
 
 - https://hindsight.vectorize.io/sdks/python
