@@ -65,7 +65,7 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(len(encoded), 6000)
 
     async def asyncSetUp(self):
-        self.env = patch.dict(os.environ, {'USER_COOLDOWN_SECONDS': '', 'ALLOWED_GUILD_IDS': '', 'PRIVATE_MEMORY_REPLIES': ''})
+        self.env = patch.dict(os.environ, {'USER_COOLDOWN_SECONDS': '', 'ALLOWED_GUILD_IDS': '', 'PRIVATE_MEMORY_REPLIES': '', 'ANSWER_PROVIDER': ''})
         self.env.start()
         self.addCleanup(self.env.stop)
         self.ai = NS(chat=NS(completions=NS(create=AsyncMock(
