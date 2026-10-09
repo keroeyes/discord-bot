@@ -57,7 +57,27 @@ Windows에서 스크립트 실행이 제한되면 위의 수동 PowerShell 절�
 보안 정책을 변경하지 않습니다. PowerShell 스크립트는 Windows 실제 실행 미검증입니다.
 
 봇 DM에서 `!그림 a white sedan parked under cherry blossoms, anime illustration`을 보냅니다.
-SDXL 기본 모델은 한국어 이해력이 모델별로 다르므로 우선 영어 설명으로 확인합니다.
+한국어 요청은 로컬 OPUS-MT 한국어→영어 모델로 번역한 뒤 SDXL에 전달합니다.
+영어 요청은 그대로 전달합니다. 번역문은 요청자 DM에만 표시하고 로그에는 기록하지 않습니다.
+번역기는 장면·스타일·소품을 추가하는 프롬프트 확장을 하지 않습니다. 번역 오류와 SDXL의
+구도·세부사항 변동은 여전히 가능합니다. 짧고 구체적인 설명으로 번역문과 결과를 비교하세요.
+번역 실패·너무 긴 입력·빈 출력 시 이미지를 생성하지 않습니다.
+
+### 한국어 번역 준비 (PC에서 한 번)
+
+```powershell
+.\.venv-images\Scripts\python.exe -m pip install -r requirements-image-translation.txt
+.\.venv-images\Scripts\python.exe image_prompt.py
+```
+
+준비 명령만 Hugging Face에서 고정 revision의 `Helsinki-NLP/opus-mt-ko-en`을 내려받습니다.
+요청 중에는 로컬 캐시만 사용하고 외부 번역 API를 호출하지 않습니다. 번역은 CPU에서 처리해
+ComfyUI GPU 메모리와 분리합니다. torch 설치 파일과 번역 모델 다운로드에 인터넷·디스크 공간이
+필요합니다. 같은 Windows 계정으로 준비·실행하세요. API 키는 추가로 필요하지 않습니다.
+설치 환경에 따라 다운로드·첫 모델 로딩에 시간이 걸릴 수 있습니다.
+이 변경은 모의 번역으로 전달·실패 처리 테스트를 수행했습니다. 실제 한국어 번역 품질,
+Windows 의존성 설치 및 생성 결과는 PC에서 준비 명령과 Discord 요청으로 확인해야 합니다.
+공식 모델: https://huggingface.co/Helsinki-NLP/opus-mt-ko-en
 결과 한 장을 DM으로 받으면 PC→ComfyUI→Discord 경로가 확인된 것입니다.
 이미지 편집과 이전 이미지에 대한 대화는 이번 버전에서 지원하지 않습니다.
 

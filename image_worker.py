@@ -7,15 +7,17 @@ from time import monotonic
 
 import discord
 from local_images import LocalImages
+from image_prompt import ImagePrompt, PromptTranslationError
 
 log = logging.getLogger(__name__)
 
 
 class ImageWorker(discord.Client):
-    def __init__(self, images, owner_id, **kwargs):
+    def __init__(self, images, owner_id, prompt_converter=None, **kwargs):
         super().__init__(**kwargs)
         self.images = images
         self.owner_id = owner_id
+        self.prompt_converter = prompt_converter or ImagePrompt()
         self.busy = False
         self.next_request = 0
 
@@ -41,7 +43,14 @@ class ImageWorker(discord.Client):
             self.next_request = monotonic() + 30
             try:
                 await self.reply(target, 'PC에서 이미지 1장을 생성합니다.')
-                data = await self.images.generate(parts[1])
+                try:
+                    prompt = await self.prompt_converter.prepare(parts[1])
+                except PromptTranslationError:
+                    await self.reply(target, '한국어 설명을 번역하지 못해 생성을 중단했어요. PC에서 번역 모델 준비를 확인하거나 짧은 영어 설명으로 요청해주세요.')
+                    return
+                if prompt != parts[1].strip():
+                    await self.reply(target, '모델에 전달하는 영어 설명:\n' + prompt)
+                data = await self.images.generate(prompt)
                 file = discord.File(io.BytesIO(data), filename='keroro.png')
                 try:
                     await target.send(file=file, allowed_mentions=discord.AllowedMentions.none())
