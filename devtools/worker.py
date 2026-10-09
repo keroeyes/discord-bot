@@ -3,8 +3,8 @@ import argparse
 import json
 import os
 import re
-import time
 from typing import TypedDict
+from e2b import CommandExitException
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Command, interrupt
@@ -46,6 +46,8 @@ def test_in_e2b(commit, sandbox_factory=None):
         )
         result = sandbox.commands.run(command, timeout=240)
         return "passed" if result.exit_code == 0 else "failed"
+    except CommandExitException:
+        return "failed"
     except Exception:
         # Never persist raw output/exceptions, which may contain sensitive data.
         return "execution_error"
