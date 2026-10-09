@@ -70,6 +70,16 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(test_in_e2b(COMMIT, lambda **kw: sandbox), "execution_error")
         self.assertEqual(killed, [True])
 
+    def test_nonzero_command_exit_is_failed_and_cleaned_up(self):
+        from e2b import CommandExitException
+        def fail(*args, **kwargs):
+            raise CommandExitException("synthetic-error", "", 1, None)
+        killed = []
+        sandbox = SimpleNamespace(commands=SimpleNamespace(run=fail), kill=lambda: killed.append(True))
+        with patch.dict(os.environ, {"E2B_API_KEY": "synthetic-test-key"}):
+            self.assertEqual(test_in_e2b(COMMIT, lambda **kw: sandbox), "failed")
+        self.assertEqual(killed, [True])
+
     def test_rejects_shell_injection_before_sandbox_creation(self):
         with self.assertRaises(ValueError):
             test_in_e2b("abc; echo unsafe", lambda **kw: self.fail("sandbox created"))
