@@ -18,14 +18,15 @@ Discord Developer Portal의 Message Content Intent가 활성화되어 있어야 
 기본 설정에서는 같은 채널의 다른 사람이 볼 수 있는 답변으로 기억이 출력될 수 있습니다.
 아래 선택형 비공개 응답을 설정하거나 개인 정보는 DM에서 관리하세요.
 기억 저장/검색에는 Hindsight 서버 및 서버에 설정한 LLM 처리가 발생하며 비용이 들 수 있습니다.
-`!질문`의 기억 데이터는 OpenAI에도 전달됩니다. API 키를 채팅이나 GitHub에 올리지 마세요.
+`!질문`은 선택한 답변 경로의 모델 제공자에게 질문과 관련 기억을 전달합니다. API 키를 채팅이나 GitHub에 올리지 마세요.
 
 ## 환경변수
 
 | 변수 | 용도 |
 | --- | --- |
 | `DISCORD_TOKEN` | 기존 봇 토큰 (필수) |
-| `OPENAI_API_KEY` | 기존 OpenAI API 키 (필수) |
+| `OPENAI_API_KEY` | `ANSWER_PROVIDER=openai`일 때 필수 |
+| `ANSWER_PROVIDER` | 기본 `openai`. `hindsight`이면 질문도 기억 서버의 Reflect 모델로 처리하며 별도 OpenAI 클라이언트를 만들지 않음 |
 | `OPENAI_MODEL` | 선택 사항. 기본 `gpt-4o` |
 | `HINDSIGHT_URL` | 실행 중인 Hindsight API 주소. 없으면 기존 질문 기능만 작동 |
 | `HINDSIGHT_API_KEY` | 해당 Hindsight 서버가 요구하는 인증 키 |
@@ -73,7 +74,8 @@ bank 분리 및 기억 없는 질문 경로를 가짜 API로 확인합니다.
 상태·삭제 예외 및 기존 미설정 동작을 가짜 API로 확인합니다.
 
 URL 설정은 연결 성공을 뜻하지 않습니다. `!기억` → `!기억검색` → `!질문` 순서로 검증하세요.
-기억 서버가 일시적으로 실패해도 `!질문`은 기억 없이 답하고 그 사실을 표시합니다.
+기본 `openai` 경로에서는 기억 서버가 일시적으로 실패해도 `!질문`은 기억 없이 답하고 그 사실을 표시합니다.
+`hindsight` 경로에서는 서버 실패 시 오류를 알리며 OpenAI API로 자동 전환하지 않습니다.
 
 ## Railway 반영
 
@@ -83,7 +85,7 @@ URL 설정은 연결 성공을 뜻하지 않습니다. `!기억` → `!기억검
    외부 서버라면 HTTPS와 해당 서버 인증을 사용하세요. 봇 환경변수의 기존 토큰은 유지합니다.
 4. Hindsight 서버는 모델 제공자 설정과 영구 DB 저장소가 필요합니다. 데이터 볼륨/DB 연결을
    확보하지 않은 임시 파일시스템을 영구 기억 용도로 사용하지 마세요.
-5. `!봇상태`에서 `hindsight-v1`을 확인하고, 아래 명령을 실행합니다.
+5. `!봇상태`에서 `hindsight-v2`을 확인하고, 아래 명령을 실행합니다.
 
 ```text
 !기억 나는 세차할 때 18L 버킷을 사용해
@@ -132,3 +134,22 @@ bank를 delete합니다. 삭제 후 recall이 HTTP 404를 반환해야 통과하
 - https://hindsight.vectorize.io/sdks/python
 - https://github.com/vectorize-io/hindsight
 
+
+## 기억 서버 모델로 질문 답변하기
+
+봇에 `ANSWER_PROVIDER=hindsight`와 `HINDSIGHT_URL`을 설정하면 `!질문`도
+Hindsight의 Reflect로 답합니다. 일반 질문은 기억이 없어도 답하도록 요청하고,
+개인 정보 질문은 같은 사용자·서버·채널 bank의 기억을 참고합니다.
+질문과 답변은 자동 저장하지 않으며 기존 비공개 응답·동시 요청 제한을 유지합니다.
+응답 대기 시간은 최대 120초이며 서버 또는 구독 한도 오류 때 유료 API로 대체 호출하지 않습니다.
+`OPENAI_MODEL`은 이 경로에서 사용하지 않고 실제 모델은 Hindsight 서버 설정을 따릅니다.
+
+Hindsight에서 `openai-codex`를 사용하는 경우, 본인 ChatGPT 계정으로 서버에서 로그인하고
+`HINDSIGHT_API_LLM_CODEX_HOME`을 영구 볼륨의 전용 인증 디렉터리로 설정하세요.
+인증 파일은 서비스 사용자만 읽고 쓸 수 있게 관리하고 소스 저장소에 넣지 마세요.
+구독 사용량 한도가 적용되며 Railway 서버 비용은 별도입니다. 이용 범위는 제공자의 현재 조건을 따릅니다.
+일반 API 경로로 돌아가려면 `ANSWER_PROVIDER=openai`와 유효한 API 키·잔액이 필요합니다.
+
+검증: 기존 회귀 테스트 외에 Reflect 실제 SDK 직렬화, bank 분리, 비공개 응답,
+빈 응답·오류 처리 및 별도 OpenAI 클라이언트를 만들지 않는 시작 경로를 확인합니다.
+참고: https://hindsight.vectorize.io/developer/api/reflect
