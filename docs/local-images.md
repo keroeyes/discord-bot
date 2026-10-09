@@ -42,6 +42,20 @@ Discord Developer Portal에서 기존 봇의 Message Content Intent가 켜져 �
 
 ## 사용과 검증
 
+### 안내식 실행
+
+ComfyUI와 SDXL 모델을 준비한 다음 저장소 폴더의 PowerShell에서 실행합니다:
+
+```powershell
+powershell -NoProfile -File .\scripts\start-local-images.ps1
+```
+
+이 스크립트는 Python 버전과 ComfyUI 연결을 검사하고 설치된 모델 목록을 보여줍니다.
+모델 번호·본인 Discord ID를 선택한 뒤 토큰을 숨김 입력으로 받고 작업자를 시작합니다.
+가상환경과 의존성 설치에는 인터넷이 필요합니다. 종료 시 기존 환경변수를 복원합니다.
+Windows에서 스크립트 실행이 제한되면 위의 수동 PowerShell 절차를 사용하세요.
+보안 정책을 변경하지 않습니다. PowerShell 스크립트는 Windows 실제 실행 미검증입니다.
+
 봇 DM에서 `!그림 a white sedan parked under cherry blossoms, anime illustration`을 보냅니다.
 SDXL 기본 모델은 한국어 이해력이 모델별로 다르므로 우선 영어 설명으로 확인합니다.
 결과 한 장을 DM으로 받으면 PC→ComfyUI→Discord 경로가 확인된 것입니다.
