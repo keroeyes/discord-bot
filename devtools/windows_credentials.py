@@ -66,6 +66,7 @@ def main():
     parser.add_argument("--save", action="store_true")
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--worker", nargs=argparse.REMAINDER)
+    parser.add_argument("--autopatcher", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.save:
         save_key(args.credential_file, sys.stdin.read().strip())
@@ -74,8 +75,10 @@ def main():
     os.environ["E2B_API_KEY"] = load_key(args.credential_file)
     if args.smoke:
         smoke()
-    elif args.worker is not None:
-        sys.argv = [str(Path(__file__).with_name("worker.py")), *args.worker]
+    elif args.worker is not None or args.autopatcher is not None:
+        target = "autopatcher.py" if args.autopatcher is not None else "worker.py"
+        arguments = args.autopatcher if args.autopatcher is not None else args.worker
+        sys.argv = [str(Path(__file__).with_name(target)), *arguments]
         runpy.run_path(sys.argv[0], run_name="__main__")
     else:
         print(json.dumps({"credential_available": True}))

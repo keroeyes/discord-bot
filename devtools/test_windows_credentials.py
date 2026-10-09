@@ -26,6 +26,19 @@ class CredentialTests(unittest.TestCase):
                 credentials.save_key(path, "invalid")
             self.assertFalse(path.exists())
 
+    def test_autopatcher_receives_encrypted_key_without_cli_secret(self):
+        import sys
+        with patch.dict(os.environ, {}, clear=False), patch.object(
+                sys, "argv", ["runner", "--credential-file", "synthetic.dpapi",
+                "--autopatcher", "--state-dir", "synthetic-state", "--job", "synthetic"]), patch.object(
+                credentials, "load_key", return_value="synthetic-key"), patch.object(
+                credentials.runpy, "run_path") as run:
+            credentials.main()
+            self.assertTrue(run.call_args.args[0].endswith("autopatcher.py"))
+            self.assertEqual(sys.argv[1:], ["--state-dir", "synthetic-state", "--job", "synthetic"])
+            self.assertEqual(os.environ["E2B_API_KEY"], "synthetic-key")
+            self.assertNotIn("synthetic-key", str(sys.argv))
+
     def test_smoke_cleans_up_after_failed_command(self):
         killed = []
         def fail(*args, **kwargs):
