@@ -41,3 +41,16 @@ jobs:
         run: python -m unittest discover -s evals -v
       - name: Run tracing and response contract tests with Langfuse installed
         run: python -m unittest discover -s tests -p test_observability.py -v
+
+  answer-content:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Evaluate synthetic answer content offline (no dependencies or secrets)
+        run: python -m unittest discover -s answer_evals -v
