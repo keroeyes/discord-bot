@@ -3,15 +3,15 @@ import unittest
 from unittest.mock import patch
 from types import SimpleNamespace as NS
 from answer_evals.content import CASES, evaluate
-from test_bot import BotTests, message
+import test_bot as bot_fixtures
 
 
 class DeliveredContent(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        await BotTests.asyncSetUp(self)
+        await bot_fixtures.BotTests.asyncSetUp(self)
 
     async def asyncTearDown(self):
-        await BotTests.asyncTearDown(self)
+        await bot_fixtures.BotTests.asyncTearDown(self)
 
     async def test_general_memory_and_failure_content_survive_delivery(self):
         samples = (
@@ -26,7 +26,7 @@ class DeliveredContent(unittest.IsolatedAsyncioTestCase):
                     self.memory.recall.return_value = list(case.facts)
                     self.ai.chat.completions.create.return_value = NS(
                         choices=[NS(message=NS(content=answer))])
-                    msg = message('!질문 ' + case.query)
+                    msg = bot_fixtures.message('!질문 ' + case.query)
                     await self.bot.on_message(msg)
                     delivered = '\n'.join(call.args[0] for call in msg.channel.send.call_args_list)
                     self.assertTrue(all(evaluate(case, delivered).values()))
@@ -37,7 +37,7 @@ class DeliveredContent(unittest.IsolatedAsyncioTestCase):
         self.memory.recall.return_value = []
         self.ai.chat.completions.create.return_value = NS(
             choices=[NS(message=NS(content='물의 화학식은 CO2입니다.'))])
-        msg = message('!질문 ' + CASES[0].query)
+        msg = bot_fixtures.message('!질문 ' + CASES[0].query)
         await self.bot.on_message(msg)
         msg.channel.send.assert_awaited()
         self.assertFalse(evaluate(CASES[0], msg.channel.send.call_args.args[0])['accuracy'])
