@@ -14,7 +14,7 @@ def configure():
         ('빨간 우산을 든 고양이 두 마리, 수채화',
          [('red',), ('umbrella',), ('cat',), ('two', '2'), ('watercolor', 'watercolour')]),
         ('검은 자동차 뒤에 파란 자전거, 밤, 애니메이션 그림',
-         [('black',), ('car',), ('blue',), ('bicycle', 'bike'), ('behind',), ('night',),
+         [('black',), ('car',), ('blue',), ('bicycle', 'bike'), ('behind', 'followed by'), ('night',),
           ('anime', 'animation', 'animated')])]
     for index, (source, concepts) in enumerate(cases, 1):
         output = converter.translate(source)

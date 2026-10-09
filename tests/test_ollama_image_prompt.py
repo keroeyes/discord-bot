@@ -71,3 +71,13 @@ class OllamaTests(unittest.TestCase):
             config.read_text.return_value = '{"backend":"remote"}'
             with self.assertRaises(PromptTranslationError):
                 ImagePrompt()
+
+    def test_setup_accepts_equivalent_followed_by_relation(self):
+        outputs = [
+            'White car on a road lined with cherry blossoms, realistic photograph',
+            'Two cats holding a red umbrella, watercolor',
+            'Black car followed by blue bicycle, Night, Animation painting']
+        with patch('scripts.setup_image_translation.ImagePrompt') as converter, patch('scripts.setup_image_translation.CONFIG') as config:
+            converter.return_value.translate.side_effect = outputs
+            configure()
+        config.with_suffix.return_value.replace.assert_called_once_with(config)
