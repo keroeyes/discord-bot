@@ -69,8 +69,8 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         message = SimpleNamespace(author=author, content=content, guild=object() if guild else None, channel=SimpleNamespace(send=AsyncMock()))
         return worker, images, message
 
-    async def test_owner_and_command_filter(self):
-        for owner, text in [(2, '!그림 synthetic'), (1, '!질문 synthetic')]:
+    async def test_command_filter(self):
+        for owner, text in [(1, '!질문 synthetic'), (2, '!질문 synthetic')]:
             worker, images, message = self.make(owner, text)
             await worker.on_message(message)
             images.generate.assert_not_awaited()
@@ -101,3 +101,16 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('private synthetic input', str(logs.output))
         self.assertFalse(worker.busy)
         message.channel.send.assert_not_awaited()
+
+    async def test_other_user_receives_image_in_own_dm(self):
+        worker, images, message = self.make(owner=2)
+        await worker.on_message(message)
+        images.generate.assert_awaited_once_with('synthetic')
+        self.assertIn('file', message.author.send.await_args.kwargs)
+        message.channel.send.assert_not_awaited()
+
+    async def test_bot_requests_are_ignored(self):
+        worker, images, message = self.make(owner=2)
+        message.author.bot = True
+        await worker.on_message(message)
+        images.generate.assert_not_awaited()
