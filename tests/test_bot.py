@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import unittest
 from types import SimpleNamespace as NS
@@ -8,7 +9,7 @@ import discord
 from aiohttp import web
 from hindsight_client_api.exceptions import ApiException
 
-from main import Bot, Memory, bank_for, cost_protection_config, parse_command, private_memory_config, send_text
+from main import Bot, Memory, bank_for, cost_protection_config, memory_facts_json, parse_command, private_memory_config, send_text
 
 
 class Typing:
@@ -26,6 +27,43 @@ def message(text, user=10, guild=20, channel=30, bot=False):
 
 
 class BotTests(unittest.IsolatedAsyncioTestCase):
+    def test_memory_budget_keeps_whole_json_and_facts(self):
+        facts = ['가\\"'*1600, '새 버킷은 20L', '예전 버킷은 18L']
+        encoded = memory_facts_json(facts)
+        self.assertLessEqual(len(encoded), 6000)
+        self.assertEqual(json.loads(encoded), facts[1:])
+        self.assertEqual(len(json.loads(memory_facts_json(['기억']*12))), 10)
+
+    def test_invalid_memory_is_rejected_not_empty(self):
+        for facts in [None, '문자열', [None], [123], [' '], ['내용', {}], ['가'*6000]]:
+            with self.subTest(facts=type(facts).__name__):
+                with self.assertRaises(ValueError):
+                    memory_facts_json(facts)
+
+    async def test_malformed_memory_question_falls_back(self):
+        self.memory.recall.return_value = ['내용', None]
+        msg = message('!질문 버킷')
+        await self.bot.on_message(msg)
+        prompt = self.ai.chat.completions.create.call_args.kwargs['messages']
+        self.assertEqual(len(prompt), 2)
+        self.assertIn('기억 없이', msg.channel.send.call_args.args[0])
+
+    async def test_malformed_memory_search_does_not_claim_no_memory(self):
+        self.memory.recall.return_value = ['내용', None]
+        msg = message('!기억검색 버킷')
+        await self.bot.on_message(msg)
+        self.assertIn('처리하지 못했', msg.channel.send.call_args.args[0])
+        self.assertNotIn('관련 기억이 없', msg.channel.send.call_args.args[0])
+        self.ai.chat.completions.create.assert_not_awaited()
+
+    async def test_large_memory_prompt_is_valid_json(self):
+        self.memory.recall.return_value = ['가'*4000, '나'*4000, '버킷은 20L']
+        await self.bot.on_message(message('!질문 버킷'))
+        prompt = self.ai.chat.completions.create.call_args.kwargs['messages']
+        encoded = prompt[1]['content'].split('\n', 1)[1]
+        self.assertEqual(json.loads(encoded), ['가'*4000, '버킷은 20L'])
+        self.assertLessEqual(len(encoded), 6000)
+
     async def asyncSetUp(self):
         self.env = patch.dict(os.environ, {'USER_COOLDOWN_SECONDS': '', 'ALLOWED_GUILD_IDS': '', 'PRIVATE_MEMORY_REPLIES': ''})
         self.env.start()
@@ -362,3 +400,4 @@ class SDKTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
