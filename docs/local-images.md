@@ -74,3 +74,26 @@ ComfyUI 포트의 인터넷 공개·공유기 포트 포워딩·외부 모델 AP
 로컬 모델은 건당 API 비용이 없지만 전기료와 PC 가동이 필요합니다.
 
 공식 API: https://docs.comfy.org/development/comfyui-server/comms_routes
+# Windows 로그인 자동 실행 (선택)
+
+`python scripts/windows_image_startup.py`는 ComfyUI Desktop 실행 파일을 파일 선택 창으로
+지정하고, 사용자 ID·포트·모델·기존 봇 토큰을 입력받습니다. Windows DPAPI CurrentUser로
+토큰을 암호화하며 평문 토큰을 파일·로그·명령행에 저장하지 않습니다. 같은 PC의 같은
+Windows 계정에서 로그인해야 복호화할 수 있습니다. 관리자 권한이나 실행 정책 변경은
+필요하지 않습니다. 같은 계정으로 실행되는 프로그램까지 막는 보안 경계는 아닙니다.
+
+설치 완료 후 기존 수동 이미지 worker를 Ctrl+C로 중지한 다음
+`python scripts/windows_image_startup.py --start`로 시작하세요.
+다음 로그인부터 사용자 시작프로그램 폴더의 `KeroroLocalImages.lnk`가 자동 실행됩니다.
+감시 프로그램은 ComfyUI를 한 번 실행하고 로컬 API 준비를 기다린 뒤 worker를 실행하며,
+worker 종료 시 60초 뒤 재시작합니다. ComfyUI 자체를 닫으면 다시 열어야 합니다.
+절전·PC 종료·로그아웃 중에는 이미지 생성이 동작하지 않습니다.
+
+상태는 `%LOCALAPPDATA%\KeroroLocalImages\status.txt`에 일반 문구만 기록합니다.
+worker 프로세스 시작은 Discord 로그인이나 전송 성공의 증명이 아닙니다.
+설정 파일과 암호화 토큰도 같은 폴더에 저장됩니다. 프로젝트 폴더를 이동·삭제하지 마세요.
+자동 실행 해제는 `python scripts/windows_image_startup.py --remove`이며,
+시작 바로가기와 암호화 토큰·설정을 삭제하고 감시 worker를 중지합니다. ComfyUI는 유지합니다.
+이 기능의 검증 범위는 Linux에서 문법·입력 검증·토큰 stdin 전달·바로가기 인용 테스트입니다.
+Windows DPAPI, 바로가기 생성, 로그인·재시작과 실제 Discord 전달은 PC에서 확인해야 합니다.
+
