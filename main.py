@@ -25,6 +25,20 @@ MEMORY_NOT_CONFIGURED = '장기 기억이 아직 연결되지 않았어요. 운�
 COST_COMMANDS = {'!질문', '!기억', '!기억검색'}
 
 
+def memory_facts_json(facts):
+    """검증한 기억을 온전한 JSON으로 제한한다. 최신성 판정은 하지 않는다."""
+    if not isinstance(facts, list) or any(not isinstance(f, str) or not f.strip() for f in facts):
+        raise ValueError('Invalid memory results')
+    selected = []
+    for fact in facts[:10]:
+        candidate = selected + [fact]
+        if len(json.dumps(candidate, ensure_ascii=False)) <= 6000:
+            selected = candidate
+    if facts and not selected:
+        raise ValueError('Memory results exceed context budget')
+    return json.dumps(selected, ensure_ascii=False)
+
+
 def cost_protection_config():
     """잘못된 설정은 보호를 조용히 해제하지 않고 시작 시 거부한다."""
     raw = os.getenv('USER_COOLDOWN_SECONDS', '').strip()
@@ -99,7 +113,10 @@ class Memory:
             if exc.status == 404:
                 return []  # 아직 저장한 기억이 없는 사용자
             raise
-        return [item.text for item in response.results][:10]
+        if not isinstance(response.results, list):
+            raise ValueError('Invalid memory response')
+        facts = [item.text for item in response.results]
+        return json.loads(memory_facts_json(facts))
 
     async def save(self, bank, text, message_id):
         # 동기 처리로 완료된 후에만 저장 성공을 알린다. 자동 재시도하지 않는다.
@@ -226,7 +243,7 @@ class Bot(discord.Client):
             await send_text(message.channel, '이 채널의 본인 기억으로 저장했어요. 이후 `!질문`에서 참고합니다.')
             return
         if command == '!기억검색':
-            facts = await self.memory.recall(bank, text)
+            facts = json.loads(memory_facts_json(await self.memory.recall(bank, text)))
             await self.send_memory_reply(message, '\n'.join(f'- {fact}' for fact in facts) if facts else '관련 기억이 없어요.')
             return
         if command == '!기억삭제':
@@ -238,7 +255,7 @@ class Bot(discord.Client):
         memory_failed = False
         if self.memory.enabled:
             try:
-                facts = await self.memory.recall(bank, text)
+                facts = json.loads(memory_facts_json(await self.memory.recall(bank, text)))
             except Exception as exc:
                 log.warning('기억 조회 실패: %s', type(exc).__name__)
                 memory_failed = True
@@ -248,7 +265,7 @@ class Bot(discord.Client):
             '현재 질문을 우선하세요. 근거가 없으면 기억하는 척하지 마세요.'
         )}]
         if facts:
-            messages.append({'role': 'user', 'content': '과거 참고 데이터(JSON):\n' + json.dumps(facts, ensure_ascii=False)[:6000]})
+            messages.append({'role': 'user', 'content': '과거 참고 데이터(JSON):\n' + memory_facts_json(facts)})
         messages.append({'role': 'user', 'content': text})
         response = await self.ai.chat.completions.create(
             model=self.model, messages=messages, max_completion_tokens=2000,
@@ -274,3 +291,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
