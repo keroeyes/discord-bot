@@ -54,7 +54,7 @@ class PromptTests(unittest.IsolatedAsyncioTestCase):
         worker = ImageWorker(images, 1, prompt_converter=converter, intents=discord.Intents.none())
         author = SimpleNamespace(id=2, bot=False, send=AsyncMock())
         message = SimpleNamespace(author=author, content='!그림 벚꽃길 위의 흰색 자동차',
-                                  guild=object(), channel=SimpleNamespace(send=AsyncMock()))
+                                  guild=SimpleNamespace(id=10), channel=SimpleNamespace(send=AsyncMock()))
         await worker.on_message(message)
         converter.prepare.assert_awaited_once_with('벚꽃길 위의 흰색 자동차')
         images.generate.assert_awaited_once_with('a white car on a cherry blossom road')
@@ -72,4 +72,4 @@ class PromptTests(unittest.IsolatedAsyncioTestCase):
         await worker.on_message(message)
         images.generate.assert_not_awaited()
         self.assertFalse(worker.busy)
-        self.assertIn('중단', message.channel.send.await_args.args[0])
+        self.assertIn('중단', author.send.await_args.args[0])

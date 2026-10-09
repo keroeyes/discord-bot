@@ -66,7 +66,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         images = SimpleNamespace(generate=AsyncMock(return_value=b'fixture'))
         worker = ImageWorker(images, 1, intents=discord.Intents.none())
         author = SimpleNamespace(id=owner, bot=False, send=AsyncMock())
-        message = SimpleNamespace(author=author, content=content, guild=object() if guild else None, channel=SimpleNamespace(send=AsyncMock()))
+        message = SimpleNamespace(author=author, content=content, guild=SimpleNamespace(id=10) if guild else None, channel=SimpleNamespace(send=AsyncMock()))
         return worker, images, message
 
     async def test_command_filter(self):

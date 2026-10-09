@@ -3,9 +3,9 @@ import asyncio
 import io
 import logging
 import os
-from time import monotonic
 
 import discord
+from image_access import ImageAccess, load_access
 from local_images import LocalImages
 from image_prompt import ImagePrompt, PromptTranslationError
 
@@ -13,13 +13,13 @@ log = logging.getLogger(__name__)
 
 
 class ImageWorker(discord.Client):
-    def __init__(self, images, owner_id, prompt_converter=None, **kwargs):
+    def __init__(self, images, owner_id, prompt_converter=None, access=None, **kwargs):
         super().__init__(**kwargs)
         self.images = images
         self.owner_id = owner_id
         self.prompt_converter = prompt_converter or ImagePrompt()
         self.busy = False
-        self.next_request = 0
+        self.access = access if access is not None else ImageAccess()
 
     async def reply(self, target, text):
         await target.send(text, allowed_mentions=discord.AllowedMentions.none())
@@ -31,16 +31,26 @@ class ImageWorker(discord.Client):
         if not parts or parts[0] != '!그림':
             return
         # Always DM outputs and notices; never publish a private image fallback.
-        target = message.author if message.guild is not None else message.channel
+        target = message.author
         try:
+            guild_id = message.guild.id if message.guild is not None else None
+            if not self.access.authorized(message.author.id, guild_id):
+                await self.reply(target, '접근 권한이 없어 이미지 요청을 허용하지 않습니다.')
+                return
             if len(parts) < 2 or not parts[1].strip() or len(parts[1]) > 2000:
                 await self.reply(target, '사용법: `!그림 설명` (2,000자 이하). 결과는 DM으로 보내요.')
                 return
-            if self.busy or monotonic() < self.next_request:
-                await self.reply(target, '이미지 생성 중이거나 대기시간이 남아 있어요. 잠시 후 다시 요청해주세요.')
+            if self.busy:
+                await self.reply(target, '다른 이미지 생성이 진행 중입니다. 완료 후 다시 요청해주세요.')
+                return
+            status, wait = self.access.reserve(message.author.id)
+            if status == 'cooldown':
+                await self.reply(target, f'사용자별 호출 제한: {wait}초 후 다시 요청해주세요.')
+                return
+            if status == 'daily':
+                await self.reply(target, '사용자별 일일 생성량 제한에 도달했습니다. 한국시간 자정 이후 다시 요청해주세요.')
                 return
             self.busy = True
-            self.next_request = monotonic() + 30
             try:
                 await self.reply(target, 'PC에서 이미지 1장을 생성합니다.')
                 try:
@@ -75,7 +85,11 @@ def main():
     images = LocalImages(checkpoint, port=int(os.getenv('COMFYUI_PORT', '8188')))
     intents = discord.Intents.default()
     intents.message_content = True
-    worker = ImageWorker(images, int(owner), intents=intents)
+    try:
+        access = load_access()
+    except Exception:
+        raise SystemExit('이미지 접근 설정 또는 사용량 DB를 확인해주세요.') from None
+    worker = ImageWorker(images, int(owner), access=access, intents=intents)
     # discord.py INFO logs can contain identifiers; keep this standalone worker quiet.
     logging.basicConfig(level=logging.WARNING)
     worker.run(token, log_handler=None)
