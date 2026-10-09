@@ -209,7 +209,8 @@ DM 전송 실패는 `delivery_failed`로 남겨 성공과 혼동하지 않습니
 ### 선택형 Langfuse 연결
 
 Langfuse는 별도 계정 또는 자체 서버가 필요한 선택 기능입니다.
-`pip install -r requirements-observability.txt` 후 다음 값을 봇 서비스에 설정합니다.
+SDK는 `requirements.txt`에 포함되어 Railway 기본 설치에서도 준비됩니다.
+패키지 설치만으로는 외부 수집을 시작하지 않습니다. 실제 연결에는 다음 값을 봇 서비스에 설정합니다.
 
 - `BOT_LANGFUSE_ENABLED=true`
 - `LANGFUSE_PUBLIC_KEY`
