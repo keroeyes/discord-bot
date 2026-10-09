@@ -104,6 +104,10 @@ class SubscriptionExtension(HttpExtension):
                 try:
                     if provider is not None:
                         await provider.cleanup()
+                except Exception as exc:
+                    # Cleanup must not replace an answer or its sanitized error.
+                    # Cancellation still propagates; the permit is always released.
+                    log.warning('Subscription cleanup failed: %s', type(exc).__name__)
                 finally:
                     capacity.release()
         return router
