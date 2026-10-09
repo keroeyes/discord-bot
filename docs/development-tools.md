@@ -56,3 +56,18 @@ E2B는 별도 계정과 API 키를 사용하는 격리 실행 경로입니다.
 - 병합: 사용자 승인과 저장소 보호 규칙을 통과한 뒤 실행.
 
 미수행 항목은 미검증으로 보고합니다.
+
+## 확인된 개발 환경 (2026-10-09)
+
+Serena 1.7.0을 Windows Python 3.13 전용 가상환경에 설치했고, 로컬 stdio MCP 클라이언트로 main.py 심볼 개요 및 observability.py/request_trace 참조를 실제 조회했습니다. 기본 실행기 오류가 남아 있어 대체 Node 실행기의 Python 자식 프로세스로 확인했습니다.
+
+재현용 의존성은 devtools/requirements-serena.txt, 검증 스크립트는 devtools/serena_check.py입니다. 같은 가상환경의 Python으로 실행합니다:
+
+```text
+python -m pip install -r devtools/requirements-serena.txt
+python devtools/serena_check.py --cache-home /private/serena-cache
+```
+
+uv/uvx가 PATH에 없으면 --uv-bin으로 실행 파일 디렉터리를 전달합니다. 이 스크립트는 검증 중에만 서버를 실행하고 종료합니다. ChatGPT/Codex 전체에 영구 MCP 등록을 했다는 의미는 아닙니다.
+
+LangGraph 체크포인트·E2B 후보 커밋 검증 작업기는 [별도 문서](checkpoint-worker.md)를 따릅니다. 현재 환경에 E2B_API_KEY가 없어 실제 클라우드 생성은 미시험입니다.

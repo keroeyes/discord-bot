@@ -1,0 +1,22 @@
+name: Development worker checks
+on:
+  push:
+    paths: ["devtools/**", ".github/workflows/devtools.yml"]
+  pull_request:
+    paths: ["devtools/**", ".github/workflows/devtools.yml"]
+permissions:
+  contents: read
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      E2B_API_KEY: ""
+      LANGSMITH_TRACING: "false"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r devtools/requirements.txt
+      - run: python -m unittest discover -s devtools -v
