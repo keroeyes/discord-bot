@@ -8,7 +8,6 @@ from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import tempfile
-import time
 from urllib.parse import quote
 
 from langgraph.graph import StateGraph, START, END
@@ -192,18 +191,26 @@ def build_graph(checkpointer, directory, github, generator, tester=isolated_test
             raise ValueError("Invalid base SHA")
         return {"issue": issue["number"], "base": base, "status": "generating"}
 
+    def reserve(state):
+        if state["attempts"] >= 2:
+            return {"status": "exhausted"}
+        return {"attempts": state["attempts"] + 1, "status": "generating"}
+
     def generate(state):
         issue = github.api("issues/" + str(state["issue"]))
         # Approval label and owner must still match before a model call.
         if not select_issue([issue], set()):
             return {"status": "withdrawn"}
         context = github.context(issue, state["base"])
-        value = generator(issue, context, state["result"])
-        validate_patch(value)
+        try:
+            value = generator(issue, context, state["result"])
+            validate_patch(value)
+        except Exception:
+            return {"status": "blocked_generation"}
         payload = json.dumps(value, ensure_ascii=False).encode()
         candidate_path(state).write_bytes(payload)
         return {"candidate_hash": hashlib.sha256(payload).hexdigest(),
-                "attempts": state["attempts"] + 1, "status": "testing"}
+                "status": "testing"}
 
     def files(state):
         payload = candidate_path(state).read_bytes()
@@ -226,13 +233,14 @@ def build_graph(checkpointer, directory, github, generator, tester=isolated_test
         return {"pr": pr, "status": "draft_pr_created"}
 
     graph = StateGraph(State)
-    for name, fn in [("select", select), ("generate", generate), ("test", test), ("publish", publish)]:
+    for name, fn in [("select", select), ("reserve", reserve), ("generate", generate), ("test", test), ("publish", publish)]:
         graph.add_node(name, fn)
     graph.add_edge(START, "select")
-    graph.add_conditional_edges("select", lambda s: "generate" if s["issue"] else END)
+    graph.add_conditional_edges("select", lambda s: "reserve" if s["issue"] else END)
+    graph.add_conditional_edges("reserve", lambda s: "generate" if s["status"] == "generating" else END)
     graph.add_conditional_edges("generate", lambda s: "test" if s["status"] == "testing" else END)
     graph.add_conditional_edges("test", lambda s: "publish" if s["status"] == "publishing" else
-                                "generate" if s["status"] == "retry" else END)
+                                "reserve" if s["status"] == "retry" else END)
     graph.add_edge("publish", END)
     return graph.compile(checkpointer=checkpointer)
 
