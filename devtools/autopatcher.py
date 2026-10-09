@@ -65,7 +65,7 @@ class GitHub:
         return json.loads(result.stdout)
 
     def select(self):
-        issues = self.api("issues?state=open&labels=agent-ready&per_page=100")
+        issues = self.api("issues?state=open&labels=agent-ready&sort=created&direction=asc&per_page=100")
         # Branch existence also prevents re-creating a patch after a partial publish.
         branches = self.api("branches?per_page=100")
         existing = set()
@@ -102,17 +102,13 @@ class GitHub:
 
     def publish(self, issue_number, base, files):
         branch = "codex/auto-issue-" + str(issue_number) + "-" + base[:8]
-        self.api("git/refs", {"ref": "refs/heads/" + branch, "sha": base}, "POST")
-        for item in files:
-            path = item["path"]
-            payload = {"message": "Propose fix for issue #" + str(issue_number),
-                "content": base64.b64encode(item["content"].encode()).decode(), "branch": branch}
-            # Determine existence against the immutable base tree.
-            tree = self.api("git/trees/" + base + "?recursive=1")
-            blob = next((entry["sha"] for entry in tree["tree"] if entry["path"] == path), None)
-            if blob:
-                payload["sha"] = blob
-            self.api("contents/" + quote(path, safe="/"), payload, "PUT")
+        base_tree = self.api("git/commits/" + base)["tree"]["sha"]
+        tree = self.api("git/trees", {"base_tree": base_tree,
+            "tree": [{"path": item["path"], "mode": "100644", "type": "blob",
+                      "content": item["content"]} for item in files]}, "POST")
+        commit = self.api("git/commits", {"message": "Propose fix for issue #" + str(issue_number),
+            "tree": tree["sha"], "parents": [base]}, "POST")
+        self.api("git/refs", {"ref": "refs/heads/" + branch, "sha": commit["sha"]}, "POST")
         pr = self.api("pulls", {"title": "Proposed fix for issue #" + str(issue_number),
             "head": branch, "base": "main", "draft": True,
             "body": "Addresses #" + str(issue_number) + ". Generated proposal; isolated offline tests passed. Human review and required CI checks are still required. No automatic merge."}, "POST")
