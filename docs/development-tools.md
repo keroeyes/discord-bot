@@ -70,4 +70,4 @@ python devtools/serena_check.py --cache-home /private/serena-cache
 
 uv/uvx가 PATH에 없으면 --uv-bin으로 실행 파일 디렉터리를 전달합니다. 이 스크립트는 검증 중에만 서버를 실행하고 종료합니다. ChatGPT/Codex 전체에 영구 MCP 등록을 했다는 의미는 아닙니다.
 
-LangGraph 체크포인트·E2B 후보 커밋 검증 작업기는 [별도 문서](checkpoint-worker.md)를 따릅니다. 현재 환경에 E2B_API_KEY가 없어 실제 클라우드 생성은 미시험입니다.
+LangGraph 체크포인트·E2B 후보 커밋 검증 작업기는 [별도 문서](checkpoint-worker.md)를 따릅니다. 이후 Windows 암호화 키 연결을 완료했고 실제 샌드박스 생성·명령 실행·종료 및 저장소 테스트를 통과했습니다. 암호화 실행 방법은 별도 문서의 Windows 항목을 따릅니다.
