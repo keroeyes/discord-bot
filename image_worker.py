@@ -23,7 +23,7 @@ class ImageWorker(discord.Client):
         await target.send(text, allowed_mentions=discord.AllowedMentions.none())
 
     async def on_message(self, message):
-        if message.author.bot or message.author.id != self.owner_id:
+        if message.author.bot:
             return
         parts = message.content.strip().split(maxsplit=1)
         if not parts or parts[0] != '!그림':
