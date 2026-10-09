@@ -1,6 +1,7 @@
 # Discord 봇
 
-기존 `!질문`과 기본 모델 `gpt-4o`를 유지하며 Hindsight 장기 기억을 선택적으로 사용합니다.
+`!질문`은 일반 답변을 생성하고 Hindsight 장기 기억을 선택적으로 참고합니다.
+`ANSWER_PROVIDER=subscription`은 기존 ChatGPT 구독 인증과 실제 웹 검색을 사용합니다.
 Python 3.11 이상을 사용하세요. `pip install -r requirements.txt` 후 `python main.py`로 시작합니다.
 Discord Developer Portal의 Message Content Intent가 활성화되어 있어야 합니다.
 
@@ -26,7 +27,7 @@ Discord Developer Portal의 Message Content Intent가 활성화되어 있어야 
 | --- | --- |
 | `DISCORD_TOKEN` | 기존 봇 토큰 (필수) |
 | `OPENAI_API_KEY` | `ANSWER_PROVIDER=openai`일 때 필수 |
-| `ANSWER_PROVIDER` | 기본 `openai`. `hindsight`이면 질문도 기억 서버의 Reflect 모델로 처리하며 별도 OpenAI 클라이언트를 만들지 않음 |
+| `ANSWER_PROVIDER` | 기본 `openai`. `subscription`은 구독 일반 답변+웹 검색, `hindsight`는 기억 중심 Reflect (일반 질문에 비권장) |
 | `OPENAI_MODEL` | 선택 사항. 기본 `gpt-4o` |
 | `HINDSIGHT_URL` | 실행 중인 Hindsight API 주소. 없으면 기존 질문 기능만 작동 |
 | `HINDSIGHT_API_KEY` | 해당 Hindsight 서버가 요구하는 인증 키 |
@@ -85,7 +86,7 @@ URL 설정은 연결 성공을 뜻하지 않습니다. `!기억` → `!기억검
    외부 서버라면 HTTPS와 해당 서버 인증을 사용하세요. 봇 환경변수의 기존 토큰은 유지합니다.
 4. Hindsight 서버는 모델 제공자 설정과 영구 DB 저장소가 필요합니다. 데이터 볼륨/DB 연결을
    확보하지 않은 임시 파일시스템을 영구 기억 용도로 사용하지 마세요.
-5. `!봇상태`에서 `hindsight-v2`을 확인하고, 아래 명령을 실행합니다.
+5. `!봇상태`에서 `subscription-search-v3`을 확인하고, 아래 명령을 실행합니다.
 
 ```text
 !기억 나는 세차할 때 18L 버킷을 사용해
@@ -138,7 +139,7 @@ bank를 delete합니다. 삭제 후 recall이 HTTP 404를 반환해야 통과하
 ## 기억 서버 모델로 질문 답변하기
 
 봇에 `ANSWER_PROVIDER=hindsight`와 `HINDSIGHT_URL`을 설정하면 `!질문`도
-Hindsight의 Reflect로 답합니다. 일반 질문은 기억이 없어도 답하도록 요청하고,
+Hindsight의 Reflect로 답합니다. **Reflect는 기억 중심 응답이므로 일반 지식·최신 검색용으로 적합하지 않습니다.**
 개인 정보 질문은 같은 사용자·서버·채널 bank의 기억을 참고합니다.
 질문과 답변은 자동 저장하지 않으며 기존 비공개 응답·동시 요청 제한을 유지합니다.
 응답 대기 시간은 최대 120초이며 서버 또는 구독 한도 오류 때 유료 API로 대체 호출하지 않습니다.
@@ -153,3 +154,34 @@ Hindsight에서 `openai-codex`를 사용하는 경우, 본인 ChatGPT 계정으�
 검증: 기존 회귀 테스트 외에 Reflect 실제 SDK 직렬화, bank 분리, 비공개 응답,
 빈 응답·오류 처리 및 별도 OpenAI 클라이언트를 만들지 않는 시작 경로를 확인합니다.
 참고: https://hindsight.vectorize.io/developer/api/reflect
+
+## 구독 일반 답변과 웹 검색 (운영 권장)
+
+봇은 `ANSWER_PROVIDER=subscription`으로 설정합니다. 기억은 같은 bank에서 recall한 참고 데이터로만
+전달하며, 실제 답변은 별도의 일반 모델 호출로 생성합니다. 최신 정보·지역 추천에는 모델의
+호스팅 웹 검색 도구를 사용하고 실제 SSE 검색 완료 이벤트와 인용 URL을 수집합니다.
+쉘 실행·파일 접근·임의 함수 도구는 모델에 제공하지 않습니다. 검색 결과가 없는 경우 검증된
+최신 정보인 것처럼 표시하지 않도록 요청합니다. 질문·답변은 자동 저장하지 않습니다.
+
+Hindsight 0.10.2의 공식 HTTP extension을 사용합니다. 기존 이미지·영구 볼륨·Codex 인증을 유지하고,
+이 저장소의 검증한 커밋에서 `subscription.py`, `subscription_extension.py`를 내려받아
+`/home/hindsight/.pg0/discord-extension/`에 설치하세요. 서비스 사용자 소유, 디렉터리 700,
+파일 600으로 제한하고 다음 환경변수를 설정한 후 Hindsight를 재배포합니다.
+
+- `PYTHONPATH=/home/hindsight/.pg0/discord-extension`
+- `HINDSIGHT_API_HTTP_EXTENSION=subscription_extension:SubscriptionExtension`
+- 기존 `HINDSIGHT_API_LLM_CODEX_HOME`, 모델, 볼륨 설정 유지
+
+`GET /ext/answers/status`는 버전·모델·검색 지원 설정을 반환합니다.
+`POST /ext/answers`는 query와 facts만 받으며 모델·인증 경로·도구는 클라이언트가 변경할 수 없습니다.
+출력은 text, model, search_count, sources, version입니다.
+이 확장은 기존 Railway 사설 네트워크 전용으로 운영하며 공개 도메인을 연결하지 마세요.
+인증이 필요한 외부 서비스로 전환하려면 해당 접근 제어를 확장 라우트에도 별도로 적용해야 합니다.
+
+모델 동시 실행은 2개이며 대기 10초 초과 시 busy를 반환합니다. 모델 요청은 최대170초,
+봇 HTTP 요청은190초 제한입니다. 구독 한도·인증·검색 오류 때 유료 OpenAI API나 Reflect로
+자동 전환하지 않습니다. 구독 사용 한도와 Railway 비용은 그대로 적용됩니다.
+
+배포 검증은 두 실제 문제 질문, 완료된 웹 검색 수, 인용 URL, 기억 참고 응답을 확인합니다.
+회귀 테스트는 일반 질문의 Reflect 미사용, 기억 없음·조회 실패, 사용자 범위, DM 실패,
+실제 HTTP 직렬화 및 검색 이벤트/인용 파싱을 검증합니다.
