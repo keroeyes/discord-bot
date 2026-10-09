@@ -15,6 +15,7 @@ from hindsight_client import Hindsight
 from hindsight_client_api.exceptions import ApiException
 from openai import AsyncOpenAI
 from subscription import SubscriptionAnswers
+from observability import request_trace, stage, record_memory, record_search, mark_delivery_failed, flush
 
 log = logging.getLogger(__name__)
 HELP = (
@@ -184,7 +185,7 @@ class Bot(discord.Client):
             raise ValueError('이 답변 경로에는 HINDSIGHT_URL이 필요합니다.')
         self.model = ('Hindsight / 서버 설정 모델' if self.answer_provider == 'hindsight'
                       else os.getenv('OPENAI_MODEL', 'gpt-4o'))
-        self.subscription = (SubscriptionAnswers(memory.url, memory.api_key)
+        self.subscription = (SubscriptionAnswers(memory.url, memory.api_key, evidence_callback=record_search)
                              if self.answer_provider == 'subscription' else None)
         if self.subscription is not None:
             self.model = 'ChatGPT 구독 모델 / 웹 검색 지원'
@@ -205,6 +206,7 @@ class Bot(discord.Client):
                 if self.ai is not None:
                     await self.ai.close()
             finally:
+                await asyncio.to_thread(flush)
                 await super().close()
 
     async def on_message(self, message):
@@ -256,7 +258,8 @@ class Bot(discord.Client):
         async with lock, self.capacity:
             try:
                 async with message.channel.typing():
-                    await self.handle(message, command, text, bank)
+                    with request_trace(command, self.answer_provider):
+                        await self.handle(message, command, text, bank)
             except Exception as exc:
                 # 예외 원문에는 토큰·URL·사용자 데이터가 포함될 수 있어 출력하지 않는다.
                 log.warning('요청 실패: %s', type(exc).__name__)
@@ -269,33 +272,42 @@ class Bot(discord.Client):
                 await send_text(message.channel, reply)
 
     async def send_memory_reply(self, message, text):
-        if not self.private_memory_replies or message.guild is None:
-            await send_text(message.channel, text)
-            return
-        try:
-            # 전송 목적지만 바꾸며 bank는 원래 요청의 서버·채널을 유지한다.
-            await send_text(message.author, text)
-        except discord.HTTPException as exc:
-            log.warning('DM 전송 실패: %s', type(exc).__name__)
-            # 일부 조각을 DM으로 보낸 뒤 실패해도 공개 채널로 재전송하지 않는다.
-            await send_text(message.channel, 'DM으로 답변을 보내지 못했어요. DM 수신 설정을 확인해주세요.')
+        with stage('delivery'):
+            if not self.private_memory_replies or message.guild is None:
+                await send_text(message.channel, text)
+                return
+            try:
+                # 전송 목적지만 바꾸며 bank는 원래 요청의 서버·채널을 유지한다.
+                await send_text(message.author, text)
+            except discord.HTTPException as exc:
+                mark_delivery_failed()
+                log.warning('DM 전송 실패: %s', type(exc).__name__)
+                # 일부 조각을 DM으로 보낸 뒤 실패해도 공개 채널로 재전송하지 않는다.
+                await send_text(message.channel, 'DM으로 답변을 보내지 못했어요. DM 수신 설정을 확인해주세요.')
 
     async def handle(self, message, command, text, bank):
         if command == '!기억':
-            await self.memory.save(bank, text, message.id)
-            await send_text(message.channel, '이 채널의 본인 기억으로 저장했어요. 이후 `!질문`에서 참고합니다.')
+            with stage('memory_save'):
+                await self.memory.save(bank, text, message.id)
+            with stage('delivery'):
+                await send_text(message.channel, '이 채널의 본인 기억으로 저장했어요. 이후 `!질문`에서 참고합니다.')
             return
         if command == '!기억검색':
-            facts = json.loads(memory_facts_json(await self.memory.recall(bank, text)))
+            with stage('memory_recall'):
+                facts = json.loads(memory_facts_json(await self.memory.recall(bank, text)))
+                record_memory(len(facts))
             await self.send_memory_reply(message, '\n'.join(f'- {fact}' for fact in facts) if facts else '관련 기억이 없어요.')
             return
         if command == '!기억삭제':
-            await self.memory.delete(bank)
-            await send_text(message.channel, '이 채널에 저장한 본인 기억을 모두 삭제했어요.')
+            with stage('memory_delete'):
+                await self.memory.delete(bank)
+            with stage('delivery'):
+                await send_text(message.channel, '이 채널에 저장한 본인 기억을 모두 삭제했어요.')
             return
 
         if self.answer_provider == 'hindsight':
-            answer = await self.memory.reflect(bank, text)
+            with stage('answer_generation'):
+                answer = await self.memory.reflect(bank, text)
             await self.send_memory_reply(message, answer)
             return
 
@@ -303,12 +315,15 @@ class Bot(discord.Client):
         memory_failed = False
         if self.memory.enabled:
             try:
-                facts = json.loads(memory_facts_json(await self.memory.recall(bank, text)))
+                with stage('memory_recall'):
+                    facts = json.loads(memory_facts_json(await self.memory.recall(bank, text)))
+                    record_memory(len(facts))
             except Exception as exc:
                 log.warning('기억 조회 실패: %s', type(exc).__name__)
                 memory_failed = True
         if self.answer_provider == 'subscription':
-            answer = await self.subscription.answer(text, facts)
+            with stage('answer_generation'):
+                answer = await self.subscription.answer(text, facts)
             if memory_failed:
                 answer = '※ 기억 조회에 실패하여 이번에는 기억 없이 답합니다.\n' + answer
             await self.send_memory_reply(message, answer)
@@ -321,9 +336,10 @@ class Bot(discord.Client):
         if facts:
             messages.append({'role': 'user', 'content': '과거 참고 데이터(JSON):\n' + memory_facts_json(facts)})
         messages.append({'role': 'user', 'content': text})
-        response = await self.ai.chat.completions.create(
-            model=self.model, messages=messages, max_completion_tokens=2000,
-        )
+        with stage('answer_generation'):
+            response = await self.ai.chat.completions.create(
+                model=self.model, messages=messages, max_completion_tokens=2000,
+            )
         answer = response.choices[0].message.content
         if memory_failed:
             answer = '※ 기억 조회에 실패하여 이번에는 기억 없이 답합니다.\n' + (answer or '')
