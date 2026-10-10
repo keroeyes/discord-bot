@@ -1,6 +1,10 @@
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from unittest.mock import Mock, patch
+from contextlib import nullcontext
+import json
+from image_prompt import ImagePrompt
 from aiohttp import web
 import discord
 from image_worker import ImageWorker
@@ -46,6 +50,35 @@ class LocalTests(unittest.IsolatedAsyncioTestCase):
         graph = self.submitted[0]['prompt']
         self.assertEqual(graph['2']['inputs']['text'], 'synthetic car')
         self.assertEqual(graph['4']['inputs']['batch_size'], 1)
+
+    async def test_korean_ollama_worker_to_http_positive_path(self):
+        english = 'blue bicycle behind a black car, night, anime'
+        response = Mock()
+        response.read.return_value = json.dumps({'done': True, 'done_reason': 'stop',
+            'response': json.dumps({'translations': ['blue bicycle behind a black car', 'night', 'anime']})}).encode()
+        opener = Mock()
+        opener.open.return_value = nullcontext(response)
+        worker = ImageWorker(self.client, 1, prompt_converter=ImagePrompt(backend='ollama'), intents=discord.Intents.none())
+        author = SimpleNamespace(id=2, bot=False, send=AsyncMock())
+        message = SimpleNamespace(author=author, content='!그림 검은 자동차 뒤에 파란 자전거, 밤, 애니메이션 그림',
+            guild=SimpleNamespace(id=10), channel=SimpleNamespace(send=AsyncMock()))
+        with patch('image_prompt.build_opener', return_value=opener):
+            await worker.on_message(message)
+        graph = self.submitted[0]['prompt']
+        positive = graph['5']['inputs']['positive'][0]
+        self.assertEqual(graph[positive]['inputs']['text'], english)
+        self.assertEqual(graph['3']['inputs']['text'], 'blurry, low quality, watermark')
+        self.assertIn(english, author.send.await_args_list[1].args[0])
+        self.assertIn('번역기: ollama', author.send.await_args_list[1].args[0])
+        message.channel.send.assert_not_awaited()
+        self.assertIn('file', author.send.await_args.kwargs)
+
+    async def test_fixed_seed_for_synthetic_comparison(self):
+        await self.client.generate('synthetic', seed=12345)
+        self.assertEqual(self.submitted[0]['prompt']['5']['inputs']['seed'], 12345)
+        for seed in [-1, 2 ** 63, True, '12345']:
+            with self.assertRaises(ValueError):
+                await self.client.generate('synthetic', seed=seed)
 
     async def test_failure_and_no_retry(self):
         for mode, exception in [('reject', RuntimeError), ('error', RuntimeError), ('invalid', ValueError), ('timeout', TimeoutError)]:

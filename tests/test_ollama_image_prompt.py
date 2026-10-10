@@ -81,3 +81,21 @@ class OllamaTests(unittest.TestCase):
             converter.return_value.translate.side_effect = outputs
             configure()
         config.with_suffix.return_value.replace.assert_called_once_with(config)
+
+    def test_setup_rejects_reversed_spatial_direction(self):
+        outputs = [
+            'White car on a road lined with cherry blossoms, realistic photograph',
+            'Two cats holding a red umbrella, watercolor',
+            'Black car behind blue bicycle, night, anime']
+        with patch('scripts.setup_image_translation.ImagePrompt') as converter, patch('scripts.setup_image_translation.CONFIG') as config:
+            converter.return_value.translate.side_effect = outputs
+            with self.assertRaises(RuntimeError):
+                configure()
+        config.with_suffix.assert_not_called()
+
+    def test_probe_accepts_direction_and_rejects_missing_count_or_color(self):
+        from scripts.image_translation_checks import issues
+        self.assertEqual(issues(2, 'Blue bicycle behind a black car, night, anime'), [])
+        self.assertEqual(issues(2, 'Black car in front of a blue bicycle, night, anime'), [])
+        self.assertIn('two', issues(1, 'Cats holding a red umbrella, watercolor'))
+        self.assertIn('red', issues(1, 'Two cats holding an umbrella, watercolor'))

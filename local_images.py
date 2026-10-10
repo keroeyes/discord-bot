@@ -30,8 +30,11 @@ class LocalImages:
         self.checkpoint = checkpoint
         self.timeout = timeout
 
-    async def generate(self, prompt):
-        graph = workflow(prompt, self.checkpoint, secrets.randbits(63))
+    async def generate(self, prompt, *, seed=None):
+        # Fixed seeds are opt-in for synthetic A/B checks; normal requests stay random.
+        if seed is not None and (type(seed) is not int or not 0 <= seed < 2 ** 63):
+            raise ValueError('Invalid seed')
+        graph = workflow(prompt, self.checkpoint, secrets.randbits(63) if seed is None else seed)
         async with asyncio.timeout(self.timeout):
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15), trust_env=False) as session:
                 async with session.post(self.base + '/prompt', json={'prompt': graph}, allow_redirects=False) as response:

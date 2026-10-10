@@ -59,7 +59,8 @@ class ImageWorker(discord.Client):
                     await self.reply(target, '한국어 설명을 번역하지 못해 생성을 중단했어요. PC에서 번역 모델 준비를 확인하거나 짧은 영어 설명으로 요청해주세요.')
                     return
                 if prompt != parts[1].strip():
-                    await self.reply(target, '모델에 전달하는 영어 설명:\n' + prompt)
+                    backend = getattr(self.prompt_converter, 'backend', 'unknown')
+                    await self.reply(target, f'모델에 전달하는 영어 설명 (번역기: {backend}):\n' + prompt)
                 data = await self.images.generate(prompt)
                 file = discord.File(io.BytesIO(data), filename='keroro.png')
                 try:
