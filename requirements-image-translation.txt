@@ -1,0 +1,5 @@
+-r requirements-images.txt
+torch>=2.6,<3
+transformers>=4.57,<5
+sentencepiece>=0.2,<0.3
+sacremoses>=0.1,<0.2

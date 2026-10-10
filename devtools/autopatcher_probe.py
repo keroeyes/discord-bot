@@ -62,7 +62,7 @@ def local_test(files):
 
 
 def e2b_test(files):
-    from e2b import Sandbox
+    from e2b import Sandbox, CommandExitException
     sandbox = None
     try:
         sandbox = Sandbox.create(timeout=60, secure=True)
@@ -70,6 +70,8 @@ def e2b_test(files):
             sandbox.files.write('/tmp/probe/' + item['path'], item['content'])
         result = sandbox.commands.run('cd /tmp/probe && python -m unittest discover -s tests', timeout=20)
         return 'passed' if result.exit_code == 0 else 'failed'
+    except CommandExitException:
+        return 'failed'
     except Exception:
         return 'execution_error'
     finally:

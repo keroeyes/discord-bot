@@ -66,3 +66,32 @@ class ContentRegression(unittest.TestCase):
         result = evaluate(case, '2.3 2026-10-08 ' + case.source, [case.source], 3)
         self.assertTrue(result['search_evidence'])
         self.assertFalse(result['accuracy'])
+
+    def test_affirmative_words_do_not_override_negation_or_contradiction(self):
+        samples = (
+            (0, '물의 화학식은 H2O가 아닙니다.'),
+            (0, '물의 화학식은 H2O입니다. H2O라는 답은 틀렸습니다.'),
+            (0, '물의 화학식은 H2O인가요?'),
+            (0, 'H2O라고 하지 않습니다.'),
+            (0, 'H2O is not the answer.'),
+            (1, '최신 버전은 2.4가 아닙니다. 발표일은 2026-10-09입니다.'),
+            (1, '큐브앱 2.4는 2026-10-09 발표되었습니다. 최신 버전은 2.5입니다.'),
+            (1, '큐브앱 2.4는 2026-10-09 발표되었습니다. 발표일은 2026-10-08입니다.'),
+            (2, '20L는 아닙니다.'),
+            (2, '현재 버킷은 20L입니다. 실제로는 18L예요.'),
+            (2, '20L라는 질문이지만 현재 버킷은 18L 입니다.'),
+            (2, '현재 버킷은 20L입니다. 20L라는 기록은 오류입니다.'),
+        )
+        for index, text in samples:
+            with self.subTest(case=CASES[index].id, sample=index):
+                self.assertFalse(evaluate(CASES[index], text)['accuracy'])
+
+    def test_formatting_unicode_and_supported_short_affirmations(self):
+        for text in ('물의 화학식은 **H₂O**입니다.', 'H2O입니다.', '물의 화학식은 `H2O`예요.'):
+            self.assertTrue(evaluate(CASES[0], text)['accuracy'])
+
+    def test_uncertainty_cannot_be_negated_into_a_success_claim(self):
+        for index, text in ((3, '알 수 없다는 말은 틀렸습니다.'),
+                            (4, '검색은 실패하지 않았습니다.'),
+                            (4, '확인 불가라는 말은 거짓입니다.')):
+            self.assertFalse(evaluate(CASES[index], text)['accuracy'])

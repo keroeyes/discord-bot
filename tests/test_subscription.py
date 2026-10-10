@@ -6,6 +6,7 @@ import discord
 from aiohttp import web
 from main import Bot, bank_for, main
 from subscription import SearchEvidence, SubscriptionAnswers
+from conversation import contextual_query
 from test_bot import message
 
 
@@ -57,8 +58,9 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
     async def test_reported_general_questions_never_use_reflect_or_require_memory(self):
         for question in ['분당쪽 잘하는 갈비집 추천해줘', '아이폰 현재 문제가 뭐지']:
             msg = message('!질문 ' + question)
+            history = self.bot.recent.messages(bank_for(msg, 123))
             await self.bot.on_message(msg)
-            self.bot.subscription.answer.assert_awaited_with(question, [])
+            self.bot.subscription.answer.assert_awaited_with(contextual_query(question, history), [])
             self.memory.recall.assert_awaited_with(bank_for(msg, 123), question)
             self.assertIn('https://example.com', msg.channel.send.call_args.args[0])
         self.memory.reflect.assert_not_awaited()
@@ -71,8 +73,10 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.bot.subscription.answer.assert_awaited_with('내 버킷?', ['버킷은 18L'])
         self.memory.recall.side_effect = RuntimeError('secret')
         msg = message('!질문 안녕')
+        history = self.bot.recent.messages(bank_for(msg, 123))
         await self.bot.on_message(msg)
-        self.bot.subscription.answer.assert_awaited_with('안녕', [])
+        self.bot.subscription.answer.assert_awaited_with(contextual_query('안녕', history), [])
+        self.assertIn('내 버킷?', self.bot.subscription.answer.call_args.args[0])
         self.assertIn('기억 없이', msg.channel.send.call_args.args[0])
         self.assertNotIn('secret', msg.channel.send.call_args.args[0])
 

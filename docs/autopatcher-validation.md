@@ -39,3 +39,5 @@ python devtools/autopatcher_probe.py --synthetic --live-codex --live-e2b --appro
 | 실제 운영 검증 | 별도 승인된 이슈와 PR/CI/리뷰 증거 필요 | 합성 통과로 대체할 수 없음 |
 
 2026-10-10 KST 개발 확인: Linux Python/git 정상, GitHub 커넥터 로그인 keroeyes, gh/Codex/PowerShell 미설치, E2B 키 미제공. E2B SDK 설치 후 로컬 합성 시험 성공. 개발 테스트 23개 중 22개 통과, Windows DPAPI 1개 건너뜀. 실제 Codex·E2B 연결·Windows 실행·초안 PR 제출 전체 흐름은 미확인이다.
+
+최신 main 통합 검증(2026-10-10 KST): E2B SDK의 비정상 명령 종료 예외를 테스트 실패로 분류하고 연결 오류와 구분하도록 수정했다. 비용 승인 및 원격 격리 거부 조건의 회귀 시험을 보강했다. Linux Python 3.12에서 개발 시험 27개 중 26개 통과·Windows DPAPI 1개 제외, 봇 시험 125개·오프라인 평가 4개·내용 평가 18개 통과, 로컬 합성 원본 실패/후보 통과를 확인했다. 실제 Codex·E2B 서비스 호출 및 Windows 시험은 실행하지 않았다. Python 3.11 검증은 새 PR CI 결과로 별도 확인한다.
