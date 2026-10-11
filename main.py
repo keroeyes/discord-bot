@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import os
+import re
 from time import monotonic
 import weakref
 from collections import OrderedDict
@@ -21,6 +22,7 @@ from observability import request_trace, stage, record_memory, record_search, ma
 log = logging.getLogger(__name__)
 HELP = (
     '`!질문 내용` · `!기억 내용` · `!기억검색 검색어` · `!기억삭제 확인` · `!봇상태`\n'
+    'DM에서는 그냥 입력하고, 서버에서는 봇을 멘션하거나 봇 메시지에 답장하면 대화할 수 있습니다.\n'
     '기억은 본인·서버·채널별로 분리됩니다. 일반 대화는 장기 저장하지 않습니다. 최근 질문·답변은 최대 30분간 임시로 참고합니다.\n'
     '저장한 내용은 Hindsight와 설정된 모델 제공자가 처리하며, 답변에 사용됩니다. 응답 공개 범위는 운영자의 설정에 따릅니다.'
 )
@@ -216,7 +218,9 @@ class Bot(discord.Client):
             return
         parsed = parse_command(message.content)
         if parsed is None:
-            return
+            parsed = await self.parse_chat(message)
+            if parsed is None:
+                return
         command, text = parsed
         if (message.guild is not None and self.allowed_guilds
                 and message.guild.id not in self.allowed_guilds):
@@ -272,6 +276,33 @@ class Bot(discord.Client):
                 else:
                     reply = '요청을 처리하지 못했어요. 잠시 후 다시 시도해주세요.'
                 await send_text(message.channel, reply)
+
+    async def parse_chat(self, message):
+        """Route only DMs, explicit bot mentions, and replies to this bot."""
+        text = message.content.strip()
+        # Preserve other workers' commands, including !그림, and empty uploads.
+        if not text or text.startswith('!') or self.user is None:
+            return None
+        if message.guild is None:
+            return '!질문', text
+        mention = re.compile(r'<@!?' + str(self.user.id) + r'>')
+        if mention.search(text):
+            text = mention.sub('', text).strip()
+            return ('!질문', text)
+        reference = getattr(message, 'reference', None)
+        if (reference is None or reference.type != discord.MessageReferenceType.reply
+                or reference.channel_id != message.channel.id):
+            return None
+        original = reference.resolved
+        if original is None and reference.message_id is not None:
+            try:
+                original = await message.channel.fetch_message(reference.message_id)
+            except discord.HTTPException:
+                return None
+        if (isinstance(original, discord.Message)
+                and original.author.id == self.user.id):
+            return '!질문', text
+        return None
 
     async def send_memory_reply(self, message, text):
         with stage('delivery'):
