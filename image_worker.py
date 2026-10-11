@@ -13,12 +13,13 @@ log = logging.getLogger(__name__)
 
 
 class ImageWorker(discord.Client):
-    def __init__(self, images, owner_id, prompt_converter=None, access=None, **kwargs):
+    def __init__(self, images, owner_id, prompt_converter=None, access=None, ocr=None, **kwargs):
         super().__init__(**kwargs)
         self.images = images
         self.owner_id = owner_id
         self.prompt_converter = prompt_converter or ImagePrompt()
         self.busy = False
+        self.ocr = ocr
         self.access = access if access is not None else ImageAccess()
 
     async def reply(self, target, text):
@@ -28,6 +29,10 @@ class ImageWorker(discord.Client):
         if message.author.bot:
             return
         parts = message.content.strip().split(maxsplit=1)
+        if parts and parts[0].lower() == '!ocr':
+            from local_ocr import handle_ocr
+            await handle_ocr(self, message)
+            return
         if not parts or parts[0] != '!그림':
             return
         # Always DM outputs and notices; never publish a private image fallback.
@@ -89,7 +94,11 @@ def main():
         access = load_access()
     except Exception:
         raise SystemExit('이미지 접근 설정 또는 사용량 DB를 확인해주세요.') from None
-    worker = ImageWorker(images, int(owner), access=access, intents=intents)
+    ocr = None
+    if os.getenv('OCR_PYTHON', '').strip():
+        from local_ocr import LocalOCR
+        ocr = LocalOCR(os.environ['OCR_PYTHON'])
+    worker = ImageWorker(images, int(owner), access=access, ocr=ocr, intents=intents)
     # discord.py INFO logs can contain identifiers; keep this standalone worker quiet.
     logging.basicConfig(level=logging.WARNING)
     worker.run(token, log_handler=None)
