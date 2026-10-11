@@ -15,6 +15,79 @@ class CommandlessChat(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await fixtures.BotTests.asyncTearDown(self)
 
+    def sdk_message(self, text, *, guild=True, reference=None, resolved='absent'):
+        channel = fixtures.message('').channel
+        channel.guild = NS(id=20) if guild else None
+        payload = {'id': '99', 'type': 19 if reference else 0, 'content': text,
+                   'author': {'id': '10', 'username': 'synthetic',
+                              'discriminator': '0', 'avatar': None, 'bot': False},
+                   'mentions': [], 'mention_roles': [], 'attachments': [],
+                   'embeds': [], 'components': []}
+        if reference:
+            payload['message_reference'] = reference
+        if resolved != 'absent':
+            payload['referenced_message'] = resolved
+        return discord.Message(state=self.bot._connection, channel=channel, data=payload)
+
+    async def test_real_sdk_dm_and_mention_messages(self):
+        await self.bot.on_message(self.sdk_message('synthetic-dm', guild=False))
+        await self.bot.on_message(self.sdk_message('<@123> synthetic-guild'))
+        self.assertEqual(self.ai.chat.completions.create.await_count, 2)
+        prompt = self.ai.chat.completions.create.call_args.kwargs['messages']
+        self.assertEqual(prompt[-1]['content'], 'synthetic-guild')
+        self.assertNotIn('synthetic-dm', str(prompt))
+
+    async def test_real_sdk_reply_and_deleted_reference(self):
+        original = {'id': '42', 'type': 0, 'content': 'synthetic-other-body',
+                    'author': {'id': '123', 'username': 'synthetic-bot',
+                               'discriminator': '0', 'avatar': None, 'bot': True}}
+        ref = {'message_id': '42', 'channel_id': '30', 'guild_id': '20', 'type': 0}
+        await self.bot.on_message(self.sdk_message('synthetic-reply', reference=ref,
+                                                   resolved=original))
+        prompt = self.ai.chat.completions.create.call_args.kwargs['messages']
+        self.assertNotIn('synthetic-other-body', str(prompt))
+        self.assertEqual(prompt[-1]['content'], 'synthetic-reply')
+        await self.bot.on_message(self.sdk_message('synthetic-deleted', reference=ref,
+                                                   resolved=None))
+        self.assertEqual(self.ai.chat.completions.create.await_count, 1)
+
+    async def test_real_sdk_uncached_reply_fetch(self):
+        ref = {'message_id': '42', 'channel_id': '30', 'guild_id': '20'}
+        msg = self.sdk_message('synthetic-reply', reference=ref)
+        original = self.sdk_message('synthetic-bot-body')
+        original.author = self.bot.user
+        msg.channel.fetch_message = AsyncMock(return_value=original)
+        await self.bot.on_message(msg)
+        msg.channel.fetch_message.assert_awaited_once_with(42)
+        self.ai.chat.completions.create.assert_awaited_once()
+
+    async def test_subscription_plain_chat_keeps_context_and_wire_contract(self):
+        self.bot.answer_provider = 'subscription'
+        self.bot.subscription = NS(answer=AsyncMock(return_value='synthetic-answer'))
+        await self.bot.on_message(fixtures.message('synthetic-first', guild=None))
+        await self.bot.on_message(fixtures.message('synthetic-followup', guild=None))
+        query, facts = self.bot.subscription.answer.call_args.args
+        self.assertIn('synthetic-first', query)
+        self.assertIn('synthetic-answer', query)
+        self.assertTrue(query.endswith('synthetic-followup'))
+        self.assertLessEqual(len(query), 6000)
+        self.assertEqual(facts, ['버킷은 18L'])
+        self.ai.chat.completions.create.assert_not_awaited()
+        self.memory.save.assert_not_awaited()
+
+    async def test_hindsight_plain_chat_keeps_context_without_auto_save(self):
+        self.bot.answer_provider = 'hindsight'
+        self.memory.reflect = AsyncMock(return_value='synthetic-answer')
+        await self.bot.on_message(fixtures.message('synthetic-first', guild=None))
+        await self.bot.on_message(fixtures.message('synthetic-followup', guild=None))
+        bank, query = self.memory.reflect.call_args.args
+        self.assertIn('synthetic-first', query)
+        self.assertIn('synthetic-answer', query)
+        self.assertTrue(query.endswith('synthetic-followup'))
+        self.assertEqual(bank, bank_for(fixtures.message('', guild=None), 123))
+        self.ai.chat.completions.create.assert_not_awaited()
+        self.memory.save.assert_not_awaited()
+
     def reply(self, *, author=123, resolved=True):
         msg = fixtures.message('synthetic-followup')
         original = Mock(spec=discord.Message)
