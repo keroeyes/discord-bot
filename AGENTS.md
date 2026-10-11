@@ -13,6 +13,16 @@ Prefer the smallest change that solves the observed problem. Do not install enti
 5. Reproduce the original case and run the relevant checks before reporting success.
 For deployment incidents, code, CI, deployment status, service health, and end-to-end behavior are separate evidence. A successful CI run does not prove production recovery.
 
+## Coordinated development
+Assign one task owner to keep the scope, implementation, verification, and final report consistent.
+Share findings with source paths, the inspected revision, and observed evidence before repeating research.
+Parallelize only independent work with explicit ownership boundaries. Never edit the same file concurrently; hand off overlapping work serially.
+The implementer runs the applicable checks and reports the exact revision or candidate, commands, results, and unverified items.
+After implementation, perform a separate acceptance pass against each requested requirement and the final diff; passing tests alone does not establish task completion.
+A separate acceptance pass is a distinct review step, not a requirement to call another model or launch another agent.
+Request specialist review only for high-risk changes or unresolved uncertainty, using the relevant checklist below.
+These are development instructions, not implemented runtime locking or an automatic reviewer. They do not add multi-model calls to ordinary Discord answers, pin models, or introduce configuration keys.
+
 ## Focused review perspectives
 Use these as review checklists, not instructions to launch additional agents.
 - Python implementation: async cancellation, timeouts, concurrency, client lifecycle, response validation, and optional configuration compatibility.
