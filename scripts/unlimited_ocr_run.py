@@ -15,7 +15,12 @@ def prepare_pages(source, directory):
             if image.width * image.height > Image.MAX_IMAGE_PIXELS:
                 raise ValueError('Image too large')
             path = directory / 'page-1.png'
-            ImageOps.exif_transpose(image).convert('RGB').save(path)
+            oriented = ImageOps.exif_transpose(image)
+            # Composite transparency onto a document-like white background.
+            # Dropping alpha alone can erase black text on transparent PNGs.
+            rgba = oriented.convert('RGBA')
+            background = Image.new('RGBA', rgba.size, 'white')
+            Image.alpha_composite(background, rgba).convert('RGB').save(path)
             return [path]
     import fitz
     with fitz.open(source) as doc:
