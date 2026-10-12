@@ -95,7 +95,7 @@ class SubscriptionAnswers:
         headers = {'Authorization': f'Bearer {self.api_key}'} if self.api_key else {}
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=190)) as session:
             async with session.post(self.url, json={'query': query, 'facts': facts},
-                                    headers=headers) as response:
+                                    headers=headers, allow_redirects=False) as response:
                 if response.status != 200:
                     raise RuntimeError('Subscription answer service unavailable')
                 chunks = bytearray()

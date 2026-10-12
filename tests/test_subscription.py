@@ -112,6 +112,33 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
 
 
 class TransportTests(unittest.IsolatedAsyncioTestCase):
+    async def test_redirect_never_resends_question_or_memory(self):
+        forwarded = []
+
+        async def redirect(request):
+            raise web.HTTPTemporaryRedirect(location='/unexpected')
+
+        async def unexpected(request):
+            forwarded.append(await request.read())
+            return web.json_response({'version': 'subscription-search-v3',
+                                      'text': 'answer', 'search_count': 0, 'sources': []})
+
+        app = web.Application()
+        app.router.add_post('/ext/answers', redirect)
+        app.router.add_post('/unexpected', unexpected)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        try:
+            site = web.TCPSite(runner, '127.0.0.1', 0)
+            await site.start()
+            port = site._server.sockets[0].getsockname()[1]
+            client = SubscriptionAnswers(f'http://127.0.0.1:{port}', 'synthetic-key')
+            with self.assertRaises(RuntimeError):
+                await client.answer('synthetic-question', ['synthetic-memory'])
+            self.assertEqual(forwarded, [])
+        finally:
+            await runner.cleanup()
+
     async def test_real_http_serialization_and_failure_validation(self):
         requests = []
         result = {'version': 'subscription-search-v3', 'text': '답변',
