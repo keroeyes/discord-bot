@@ -24,7 +24,7 @@ def prepare_pages(source, directory):
             return [path]
     import fitz
     with fitz.open(source) as doc:
-        if doc.needs_pass or not 1 <= len(doc) <= 10:
+        if doc.needs_pass or not 1 <= len(doc) <= 50:
             raise ValueError('PDF limit or encrypted PDF')
         paths = []
         for number, page in enumerate(doc):
