@@ -71,6 +71,7 @@ def load_access():
         if value not in ('true', 'false'):
             raise ValueError('Invalid image DM setting')
         config['allow_dm'] = value == 'true'
-    state = Path(os.getenv('LOCALAPPDATA', str(Path.home()))) / 'KeroroLocalImages'
+    state_root = os.getenv('LOCALAPPDATA')
+    state = (Path(state_root) if state_root else Path.home()) / 'KeroroLocalImages'
     state.mkdir(parents=True, exist_ok=True)
     return ImageAccess(**config, state_path=str(state / 'image_usage.sqlite3'))
