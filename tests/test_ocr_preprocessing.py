@@ -77,12 +77,23 @@ class PDFPreprocessingTests(unittest.TestCase):
                 with Image.open(page) as result:
                     self.assertLessEqual(max(result.size), 2048)
 
-    def test_eleven_pages_rejected(self):
+    def test_long_pdfs_up_to_fifty_pages_accepted(self):
+        for count in (33, 50):
+            with self.subTest(pages=count), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source = root / 'fixture.pdf'
+                with fitz.open() as document:
+                    for _ in range(count):
+                        document.new_page(width=20, height=20)
+                    document.save(source)
+                self.assertEqual(len(prepare_pages(source, root)), count)
+
+    def test_fifty_one_pages_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / 'fixture.pdf'
             with fitz.open() as document:
-                for _ in range(11):
+                for _ in range(51):
                     document.new_page()
                 document.save(source)
             with self.assertRaises(ValueError):
