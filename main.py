@@ -28,6 +28,13 @@ HELP = (
 )
 MEMORY_NOT_CONFIGURED = '장기 기억이 아직 연결되지 않았어요. 운영자가 HINDSIGHT_URL을 설정해야 합니다.'
 COST_COMMANDS = {'!질문', '!기억', '!기억검색'}
+MAX_ACTIVE_REQUESTS = 4
+
+
+def deployment_revision():
+    """Only expose a validated deployment commit; never echo arbitrary env text."""
+    value = os.getenv('RAILWAY_GIT_COMMIT_SHA', '').strip()
+    return value[:12] if re.fullmatch(r'[0-9a-fA-F]{40}', value) else '미확인'
 
 
 def memory_facts_json(facts):
@@ -193,7 +200,8 @@ class Bot(discord.Client):
         if self.subscription is not None:
             self.model = 'ChatGPT 구독 모델 / 웹 검색 지원'
         self.locks = weakref.WeakValueDictionary()
-        self.capacity = asyncio.Semaphore(4)
+        self.capacity = asyncio.Semaphore(MAX_ACTIVE_REQUESTS)
+        self.active_requests = 0
         self.user_cooldown, self.allowed_guilds = cost_protection_config()
         self.cooldown_until = OrderedDict()
         self.private_memory_replies = private_memory_config()
@@ -228,7 +236,16 @@ class Bot(discord.Client):
             return
         if command == '!봇상태':
             state = '설정됨 (실제 연결은 기억 명령 실행 시 확인)' if self.memory.enabled else '미설정'
-            await send_text(message.channel, f'봇 버전: subscription-search-v3\n답변 경로: {self.answer_provider}\n모델: {self.model}\n장기 기억: {state}\n{HELP}')
+            private = 'DM' if self.private_memory_replies else '요청 채널'
+            await send_text(message.channel, (
+                f'배포 커밋: {deployment_revision()}\n'
+                f'답변 경로: {self.answer_provider}\n모델: {self.model}\n'
+                f'현재 처리: {self.active_requests}/{MAX_ACTIVE_REQUESTS}\n'
+                f'장기 기억: {state}\n답변 전송: {private}\n'
+                '최근 문맥: 최대 6쌍 · 30분 (재시작 시 초기화)\n'
+                '이 응답은 봇 연결·설정 확인이며, 모델·기억 서버·PC 작업자의 정상 동작을 보증하지 않습니다.\n'
+                + HELP
+            ))
             return
         if not text:
             await send_text(message.channel, HELP)
@@ -250,6 +267,11 @@ class Bot(discord.Client):
         if lock.locked():
             await send_text(message.channel, '이전 요청을 처리 중이에요. 답변이 끝난 뒤 다시 입력해주세요.')
             return
+        # No await between admission and acquiring the free locks below. Excess
+        # requests must not accumulate indefinitely or consume user cooldown.
+        if self.capacity.locked():
+            await send_text(message.channel, '현재 요청이 많아 바로 처리할 수 없어요. 진행 중인 요청이 끝난 뒤 다시 입력해주세요.')
+            return
         if command in COST_COMMANDS and self.user_cooldown > 0:
             now = monotonic()
             # 만료된 사용자만 제거한다. 검사와 예약 사이에는 await가 없어
@@ -262,6 +284,7 @@ class Bot(discord.Client):
                 return
             self.cooldown_until[message.author.id] = now + self.user_cooldown
         async with lock, self.capacity:
+            self.active_requests += 1
             try:
                 async with message.channel.typing():
                     with request_trace(command, self.answer_provider):
@@ -276,6 +299,8 @@ class Bot(discord.Client):
                 else:
                     reply = '요청을 처리하지 못했어요. 잠시 후 다시 시도해주세요.'
                 await send_text(message.channel, reply)
+            finally:
+                self.active_requests -= 1
 
     async def parse_chat(self, message):
         """Route only DMs, explicit bot mentions, and replies to this bot."""
