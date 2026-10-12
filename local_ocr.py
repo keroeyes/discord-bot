@@ -21,7 +21,7 @@ def attachment_suffix(attachment):
 
 
 class LocalOCR:
-    def __init__(self, python, timeout=600):
+    def __init__(self, python, timeout=1800):
         self.python = str(Path(python).resolve(strict=True))
         self.timeout = timeout
 
@@ -69,7 +69,7 @@ async def handle_ocr(worker, message):
             return
         attachments = getattr(message, 'attachments', [])
         if len(attachments) != 1:
-            await worker.reply(target, '사용법: 사진 또는 PDF 한 개를 첨부하고 `!OCR` (8MB 이하, PDF 최대 10쪽).')
+            await worker.reply(target, '사용법: 사진 또는 PDF 한 개를 첨부하고 `!OCR` (8MB 이하, PDF 최대 50쪽).')
             return
         attachment_suffix(attachments[0])
         if worker.busy:
