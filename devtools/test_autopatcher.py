@@ -1,9 +1,11 @@
 import copy
+import base64
+from unittest.mock import patch
 import tempfile
 import unittest
 from pathlib import Path
 from langgraph.checkpoint.sqlite import SqliteSaver
-from autopatcher import build_graph, select_issue, validate_patch
+from autopatcher import GitHub, MAX_BYTES, build_graph, select_issue, validate_patch
 
 ISSUE = {"number": 7, "state": "open", "user": {"login": "keroeyes"},
          "title": "Synthetic regression", "body": "synthetic issue",
@@ -110,6 +112,39 @@ class AutopatcherTests(unittest.TestCase):
                 validate_patch({"files": [{"path": path, "content": "VALUE = 1"}]})
         with self.assertRaises(ValueError):
             validate_patch({"files": [PATCH["files"][0], PATCH["files"][0]]})
+
+    def test_guidance_is_read_from_same_base_and_constraints_are_included(self):
+        gh = GitHub()
+        calls = []
+        def api(endpoint):
+            calls.append(endpoint)
+            if endpoint.startswith("git/trees/"):
+                return {"tree": []}
+            name = endpoint.split("/")[1].split("?")[0]
+            return {"encoding": "base64", "content": base64.b64encode(
+                ("synthetic " + name).encode()).decode() + "\n"}
+        gh.api = api
+        context = gh.context(ISSUE, BASE)
+        self.assertEqual(context["constraints"], "synthetic CONSTRAINTS.md")
+        self.assertEqual(context["instructions"], "synthetic AGENTS.md")
+        self.assertIn("contents/CONSTRAINTS.md?ref=" + BASE, calls)
+
+    def test_invalid_guidance_is_rejected_before_generation(self):
+        gh = GitHub()
+        for data in ({"encoding": "plain", "content": "bad"},
+                     {"encoding": "base64", "content": "%%%"},
+                     {"encoding": "base64", "content": base64.b64encode(b" ").decode()},
+                     {"encoding": "base64", "content": base64.b64encode(b"x" * (MAX_BYTES + 1)).decode()}):
+            with self.subTest(data_size=len(data["content"])):
+                gh.api = lambda endpoint: {"tree": []} if endpoint.startswith("git/trees/") else data
+                with self.assertRaises(ValueError):
+                    gh.context(ISSUE, BASE)
+
+    def test_oversized_patch_is_rejected_before_compilation(self):
+        with patch("builtins.compile") as compiler:
+            with self.assertRaisesRegex(ValueError, "Patch too large"):
+                validate_patch({"files": [{"path": "main.py", "content": "#" + "한" * MAX_BYTES}]})
+            compiler.assert_not_called()
 
     def test_checkpoint_restart_does_not_repeat_completed_work(self):
         with tempfile.TemporaryDirectory() as directory:
