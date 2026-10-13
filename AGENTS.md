@@ -2,7 +2,7 @@
 
 ## Scope and priorities
 This repository contains a Python Discord bot, optional Hindsight memory, a subscription answer extension, and privacy-preserving observability.
-Read README.md and the files involved in the requested change before editing. Preserve existing provider behavior and optional configuration defaults.
+Read README.md, CONSTRAINTS.md, and the files involved in the requested change before editing. Preserve existing provider behavior and optional configuration defaults.
 Prefer the smallest change that solves the observed problem. Do not install entire agent catalogs, new orchestration frameworks, or model dependencies solely to obtain development guidance.
 
 ## Diagnose before changing
