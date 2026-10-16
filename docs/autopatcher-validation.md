@@ -41,3 +41,39 @@ python devtools/autopatcher_probe.py --synthetic --live-codex --live-e2b --appro
 2026-10-10 KST 개발 확인: Linux Python/git 정상, GitHub 커넥터 로그인 keroeyes, gh/Codex/PowerShell 미설치, E2B 키 미제공. E2B SDK 설치 후 로컬 합성 시험 성공. 개발 테스트 23개 중 22개 통과, Windows DPAPI 1개 건너뜀. 실제 Codex·E2B 연결·Windows 실행·초안 PR 제출 전체 흐름은 미확인이다.
 
 최신 main 통합 검증(2026-10-10 KST): E2B SDK의 비정상 명령 종료 예외를 테스트 실패로 분류하고 연결 오류와 구분하도록 수정했다. 비용 승인 및 원격 격리 거부 조건의 회귀 시험을 보강했다. Linux Python 3.12에서 개발 시험 27개 중 26개 통과·Windows DPAPI 1개 제외, 봇 시험 125개·오프라인 평가 4개·내용 평가 18개 통과, 로컬 합성 원본 실패/후보 통과를 확인했다. 실제 Codex·E2B 서비스 호출 및 Windows 시험은 실행하지 않았다. Python 3.11 검증은 새 PR CI 결과로 별도 확인한다.
+
+
+## 작업기 잠금과 최종 후보 검증
+
+`python devtools/autopatcher.py --state-dir <기존 상태 경로> --job <작업 ID>`는
+`~/.cache/discord-bot-autopatcher/worker.lock`의 OS 잠금을 먼저 획득합니다.
+같은 PC·OS 계정에서는 상태 경로·작업 ID가 달라도 한 번에 하나만 실행됩니다.
+잠금 중인 실행은 DB·GitHub·Codex·E2B 접근 전에 실패하며 일반화된 오류만 출력합니다.
+프로세스 종료 시 OS가 해제하므로 남은 파일을 수동 삭제하지 마세요.
+Windows는 msvcrt, POSIX는 flock을 사용합니다. 지원되는 로컬 파일시스템이 필요합니다.
+다른 PC·OS 계정·컨테이너 간 분산 잠금은 제공하지 않습니다.
+`build_graph`를 직접 임베드하는 호출자는 동일한 잠금을 전체 실행 동안 직접 유지해야 합니다.
+
+격리 테스트 통과 후 별도 `verify` 단계가 동일 base의 GitHub 트리를 다시 읽습니다.
+최종 후보 해시, 경로·크기·문법을 확인하고 새로운 `tests/test_*.py`에 TestCase와
+테스트 메서드가 있는지 검사합니다. 기존 테스트 파일 교체는 보수적으로 모두 거부합니다.
+기존 테스트 변경이 필요한 작업은 수동 개발 PR로 처리하세요.
+트리 조회 실패·truncated 응답·변조·검증 실패는 `blocked_verification`으로 중단합니다.
+검증 실패로 모델을 추가 호출하지 않으며, 게시 직전에도 검증된 해시와 후보 해시를 대조합니다.
+구버전의 검증 없는 publish 체크포인트도 게시하지 않습니다.
+
+이 검증은 모델 호출·후보 코드의 호스트 실행·추가 E2B 실행을 하지 않습니다.
+기존 생성 최대 2회, secure E2B 실행, 인증환경 필터, 옵트인 라벨 재확인,
+초안 PR과 사람의 병합 승인 정책은 유지합니다.
+정적 테스트 존재 검사는 테스트의 적절성·실행 수·의미적 정답을 보장하지 않습니다.
+생성 코드가 E2B에서 테스트를 우회할 가능성까지 해결하는 적대적 검증기가 아닙니다.
+역할 자동 배정·별도 AI 검수 모델·다중 작업자 통합은 아직 구현하지 않았습니다.
+
+합성 회귀: `python -m unittest discover -s devtools -v`.
+실제 서비스 호출 없이 별도 프로세스 잠금·종료 후 해제·게시 전 차단·후보 변조·
+기존 테스트 덮어쓰기·검증 실패·미검증 체크포인트를 확인합니다.
+되돌리기는 이 PR 커밋을 revert한 뒤 기존 작업기 명령을 사용하는 방식입니다.
+잠금과 검증 보호도 제거되므로 동시 실행을 수동 금지해야 합니다.
+
+GitHub Actions의 `development-tools` 작업은 Ubuntu와 Windows의 Python 3.11에서
+기존 개발 의존성으로 같은 오프라인 시험을 실행합니다. 비밀키·모델·E2B 실호출은 없습니다.

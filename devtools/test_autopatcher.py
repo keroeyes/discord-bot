@@ -11,7 +11,9 @@ ISSUE = {"number": 7, "state": "open", "user": {"login": "keroeyes"},
          "title": "Synthetic regression", "body": "synthetic issue",
          "labels": [{"name": "agent-ready"}]}
 BASE = "a" * 40
-PATCH = {"files": [{"path": "main.py", "content": "VALUE = 2\n"}]}
+PATCH = {"files": [{"path": "main.py", "content": "VALUE = 2\n"},
+                   {"path": "tests/test_new_behavior.py", "content":
+                    "import unittest\nclass Regression(unittest.TestCase):\n    def test_value(self):\n        self.assertEqual(2, 2)\n"}]}
 INITIAL = {"issue": 0, "base": "", "attempts": 0, "candidate_hash": "",
            "result": "", "status": "starting", "pr": 0}
 CONFIG = {"configurable": {"thread_id": "synthetic"}}
@@ -25,6 +27,8 @@ class FakeGitHub:
     def base(self):
         return BASE
     def api(self, endpoint):
+        if endpoint.startswith("git/trees/"):
+            return {"tree": [{"type": "blob", "path": "main.py"}]}
         return self.issue
     def context(self, issue, base):
         return {"instructions": "synthetic rules", "sources": {"main.py": "VALUE = 1\n"}}
