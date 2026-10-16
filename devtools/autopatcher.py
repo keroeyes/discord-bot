@@ -255,6 +255,19 @@ def build_graph(checkpointer, directory, github, generator, tester=isolated_test
     def candidate_path(state):
         return directory / ("issue-" + str(state["issue"]) + "-" + state["base"] + ".json")
 
+    def reserve_call(state, stage):
+        # Persist before an external call. Replay must stop when its outcome is unknown.
+        reservation = candidate_path(state).with_suffix(
+            "." + stage + "-" + str(state["attempts"]) + ".reserved")
+        try:
+            with reservation.open("xb") as handle:
+                handle.write(b"reserved\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+        except FileExistsError:
+            return False
+        return True
+
     def select(state):
         issue = github.select()
         if not issue:
@@ -275,6 +288,10 @@ def build_graph(checkpointer, directory, github, generator, tester=isolated_test
         if not select_issue([issue], set()):
             return {"status": "withdrawn"}
         context = github.context(issue, state["base"])
+        # A checkpoint can replay this node after the external call started.
+        # Reserve on disk first: an uncertain paid call must never be reissued.
+        if not reserve_call(state, "generation"):
+            return {"status": "blocked_generation_recovery"}
         try:
             value = generator(issue, context, state["result"])
             validate_patch(value)
@@ -294,7 +311,10 @@ def build_graph(checkpointer, directory, github, generator, tester=isolated_test
         return validate_patch(json.loads(payload))
 
     def test(state):
-        result = tester(state["base"], files(state))
+        candidate = files(state)
+        if not reserve_call(state, "test"):
+            return {"result": "execution_error", "status": "blocked_test_recovery"}
+        result = tester(state["base"], candidate)
         if result not in {"passed", "failed", "execution_error"}:
             result = "execution_error"
         return {"result": result, "status": "verifying" if result == "passed" else

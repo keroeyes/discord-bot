@@ -115,7 +115,10 @@ class AcceptanceTests(unittest.TestCase):
         gh = FakeGitHub()
         with tempfile.TemporaryDirectory() as directory:
             def tester(*args):
-                next(Path(directory).glob('issue-*.json')).write_text('{}')
+                import json
+                altered = copy.deepcopy(PATCH)
+                altered['files'][0]['content'] = 'VALUE = 999\n'
+                next(Path(directory).glob('issue-*.json')).write_text(json.dumps(altered))
                 return 'passed'
             with SqliteSaver.from_conn_string(':memory:') as saver:
                 result = build_graph(saver, directory, gh, lambda *args: PATCH,
@@ -135,6 +138,48 @@ class AcceptanceTests(unittest.TestCase):
                     result = graph.invoke(None, CONFIG)
             self.assertEqual(result['status'], 'blocked_verification')
             self.assertFalse(gh.published)
+
+    def test_interrupted_generation_is_not_reissued_on_checkpoint_resume(self):
+        class Interrupted(BaseException):
+            pass
+        gh = FakeGitHub()
+        calls = []
+        def generator(*args):
+            calls.append(1)
+            raise Interrupted()
+        with tempfile.TemporaryDirectory() as directory:
+            database = str(Path(directory) / 'jobs.sqlite')
+            with SqliteSaver.from_conn_string(database) as saver:
+                graph = build_graph(saver, directory, gh, generator, lambda *args: 'passed')
+                with self.assertRaises(Interrupted):
+                    graph.invoke(INITIAL, CONFIG)
+            with SqliteSaver.from_conn_string(database) as saver:
+                graph = build_graph(saver, directory, gh, generator, lambda *args: 'passed')
+                result = graph.invoke(None, CONFIG)
+            self.assertEqual(result['status'], 'blocked_generation_recovery')
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(gh.published)
+
+    def test_interrupted_isolated_test_is_not_reissued_on_resume(self):
+        class Interrupted(BaseException):
+            pass
+        gh = FakeGitHub()
+        calls = []
+        def tester(*args):
+            calls.append(1)
+            raise Interrupted()
+        with tempfile.TemporaryDirectory() as directory:
+            database = str(Path(directory) / 'jobs.sqlite')
+            with SqliteSaver.from_conn_string(database) as saver:
+                graph = build_graph(saver, directory, gh, lambda *args: PATCH, tester)
+                with self.assertRaises(Interrupted):
+                    graph.invoke(INITIAL, CONFIG)
+            with SqliteSaver.from_conn_string(database) as saver:
+                graph = build_graph(saver, directory, gh, lambda *args: self.fail('regenerated'), tester)
+                result = graph.invoke(None, CONFIG)
+            self.assertEqual(result['status'], 'blocked_test_recovery')
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(gh.published)
 
     def test_retry_success_still_has_only_two_generation_calls(self):
         gh = FakeGitHub()
