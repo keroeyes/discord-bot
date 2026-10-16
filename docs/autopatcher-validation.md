@@ -75,5 +75,5 @@ Windows는 msvcrt, POSIX는 flock을 사용합니다. 지원되는 로컬 파일
 되돌리기는 이 PR 커밋을 revert한 뒤 기존 작업기 명령을 사용하는 방식입니다.
 잠금과 검증 보호도 제거되므로 동시 실행을 수동 금지해야 합니다.
 
-GitHub Actions의 `development-tools` 작업은 Ubuntu와 Windows의 Python 3.11에서
+GitHub Actions의 기존 `Development worker checks` 작업은 Ubuntu와 Windows의 Python 3.11에서
 기존 개발 의존성으로 같은 오프라인 시험을 실행합니다. 비밀키·모델·E2B 실호출은 없습니다.
