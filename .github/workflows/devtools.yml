@@ -37,8 +37,6 @@ jobs:
     timeout-minutes: 10
     env:
       PYTHONUTF8: "1"
-      SERENA_HOME: ${{ runner.temp }}/serena-home
-      UV_CACHE_DIR: ${{ runner.temp }}/serena-uv-cache
       UV_PYTHON_DOWNLOADS: "never"
     steps:
       - uses: actions/checkout@v7
