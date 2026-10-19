@@ -13,8 +13,15 @@ async def check(args):
     os.makedirs(home, exist_ok=True)
     if args.uv_bin:
         os.environ["PATH"] = str(Path(args.uv_bin).resolve()) + os.pathsep + os.environ.get("PATH", "")
-    boot = "import os; os.environ['USERPROFILE']=" + repr(home) + "; from serena.cli import top_level; top_level()"
-    params = StdioServerParameters(command=sys.executable, args=[
+    # MCP stdio inherits only a small environment allowlist. Use Serena's
+    # platform-independent home setting and forward only uv cache controls;
+    # never copy the host environment (which may contain API credentials).
+    server_env = {"SERENA_HOME": home, "UV_CACHE_DIR": str(Path(home) / "uv-cache")}
+    for name in ("UV_CACHE_DIR", "UV_PYTHON_INSTALL_DIR", "UV_PYTHON_DOWNLOADS"):
+        if name in os.environ:
+            server_env[name] = os.environ[name]
+    boot = "from serena.cli import top_level; top_level()"
+    params = StdioServerParameters(command=sys.executable, env=server_env, args=[
         "-c", boot, "start-mcp-server", "--project", str(Path(__file__).resolve().parents[1]),
         "--context", "codex", "--enable-web-dashboard", "false",
         "--open-web-dashboard", "false", "--enable-gui-log-window", "false",
