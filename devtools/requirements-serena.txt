@@ -1,2 +1,3 @@
+-r requirements-trust.txt
 serena-agent==1.7.0
-uv==0.13.1
+uv==0.13.4

@@ -1,0 +1,4 @@
+# E2B's 2026-10-21 eMudhra advisory: host CA bundles, including pip's vendor.
+# Keep these as lower bounds so later security releases remain installable.
+certifi>=2026.10.19
+pip>=26.2.2

@@ -1,3 +1,4 @@
+-r requirements-trust.txt
 langgraph==1.2.14
 langgraph-checkpoint-sqlite==3.1.1
 e2b==2.55.0

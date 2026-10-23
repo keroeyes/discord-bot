@@ -8,6 +8,9 @@
 
 ## Serena 실행 및 검증
 
+E2B/Serena 호스트의 인증서 보안 갱신과 읽기 전용 확인 방법은
+[eMudhra 보안 대응](emudhra-security.md)을 먼저 확인하세요.
+
 공식 설치 안내: https://github.com/oraios/serena#quick-start
 공식 클라이언트 안내: https://oraios.github.io/serena/02-usage/030_clients.html
 
