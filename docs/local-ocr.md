@@ -55,6 +55,19 @@ CUDA 12.9 기준이며 이 변경에서는 Windows RTX 4090 실기기 실행을 
 
 ## 검증
 
+`ocr-preprocessing` CI는 Ubuntu와 Windows의 Python 3.12에서
+`python -m pip install -c requirements-ocr.txt Pillow pymupdf`로 전처리 라이브러리만
+설치합니다. 별도의 버전 고정값 없이 OCR 작업자와 같은 선언을 사용하며, 설치 버전과
+선언 버전의 일치를 확인하고 로그에 남깁니다. 라이브러리 import 실패나 버전 불일치는
+실패로 처리합니다. torch·모델 다운로드와 GPU 추론은 이 작업에 포함하지 않습니다.
+
+`python -m unittest discover -s tests -p test_ocr_preprocessing.py -v`는 합성 입력으로
+투명·반투명 PNG의 흰 배경 합성, EXIF 8방향의 픽셀 위치, PDF 페이지 내용·순서·회전과
+2048px 렌더링 제한을 확인합니다. 기존 33·50쪽 허용, 51쪽·암호화 PDF 거부도 검사합니다.
+일반 테스트 환경에서는 선택 의존성이 없으면 이 검사들이 생략될 수 있으므로, CI는
+테스트 전에 Pillow와 PyMuPDF를 반드시 import하여 누락을 실패로 처리합니다.
+Windows CI 성공은 RTX 4090·CUDA·Unlimited-OCR 모델 추론 성공의 근거가 아닙니다.
+
 `python -m unittest discover -s tests -v`는 모델 없이 합성 요청의 명령 분리,
 접근제어·공유 제한·GPU 작업 잠금·DM 전송·실패 시 비공개 처리를 검증합니다.
 실기기에서는 개인정보 없는 한국어 이미지 1장과 2쪽 PDF를 DM에 첨부해 시험하세요.
