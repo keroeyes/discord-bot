@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from serena_result import tool_failed
 
 async def check(args):
     home = str(Path(args.cache_home).resolve())
@@ -34,7 +35,7 @@ async def check(args):
                 ("find_referencing_symbols", {"name_path": "request_trace", "relative_path": "observability.py"}),
             ]:
                 result = await session.call_tool(name, arguments)
-                if result.isError:
+                if tool_failed(result):
                     print(json.dumps({"tool": name, "status": "failed"}))
                     return 1
                 print(json.dumps({"tool": name, "status": "ok"}))
