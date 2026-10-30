@@ -56,7 +56,13 @@ jobs:
         run: python -m unittest discover -s answer_evals -v
 
   ocr-preprocessing:
-    runs-on: ubuntu-latest
+    # Keep the existing Ubuntu check name for branch protection rules.
+    name: ${{ matrix.os == 'ubuntu-latest' && 'ocr-preprocessing' || 'ocr-preprocessing-windows' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -66,6 +72,26 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install input preparation libraries only (no GPU or model)
-        run: python -m pip install Pillow==12.1.1 pymupdf==1.27.2.2
+        # Constraints select the worker's pins without installing torch or the model.
+        run: python -m pip install -c requirements-ocr.txt Pillow pymupdf
+      - name: Verify and report installed OCR dependency versions
+        shell: python
+        run: |
+          from importlib.metadata import version
+          from pathlib import Path
+          import PIL.Image
+          import fitz
+
+          pins = dict(
+              line.strip().split('==', 1)
+              for line in Path('requirements-ocr.txt').read_text(encoding='utf-8').splitlines()
+              if '==' in line and not line.lstrip().startswith('#')
+          )
+          for package in ('Pillow', 'pymupdf'):
+              actual = version(package)
+              expected = pins[package]
+              print(f'{package}: installed={actual}, requirements-ocr.txt={expected}', flush=True)
+              if actual != expected:
+                  raise SystemExit(f'{package} version mismatch')
       - name: Test synthetic image and PDF preprocessing
         run: python -m unittest discover -s tests -p test_ocr_preprocessing.py -v
