@@ -22,8 +22,8 @@ def prepare_pages(source, directory):
             background = Image.new('RGBA', rgba.size, 'white')
             Image.alpha_composite(background, rgba).convert('RGB').save(path)
             return [path]
-    import fitz
-    with fitz.open(source) as doc:
+    import pymupdf
+    with pymupdf.open(source) as doc:
         if doc.needs_pass or not 1 <= len(doc) <= 50:
             raise ValueError('PDF limit or encrypted PDF')
         paths = []
@@ -32,7 +32,7 @@ def prepare_pages(source, directory):
                 raise ValueError('Invalid page')
             scale = min(2, 2048 / max(page.rect.width, page.rect.height))
             path = directory / f'page-{number + 1}.png'
-            page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False).save(path)
+            page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False).save(path)
             paths.append(path)
         return paths
 
