@@ -85,6 +85,21 @@ python devtools/serena_check.py --cache-home /private/serena-cache
 
 uv/uvx가 PATH에 없으면 --uv-bin으로 실행 파일 디렉터리를 전달합니다. 이 스크립트는 검증 중에만 서버를 실행하고 종료합니다. ChatGPT/Codex 전체에 영구 MCP 등록을 했다는 의미는 아닙니다.
 
+Serena 2.1.0에서는 새 전역 설정의 기본 인터페이스가 REPL이므로, 프로젝트의
+`agent_interface: tools`로 기존 `get_symbols_overview`·`find_referencing_symbols`를 유지합니다.
+REPL에서는 기존 도구가 노출되지 않아 `Unknown tool`로 실패할 수 있습니다.
+검증은 먼저 두 도구의 노출 여부를 확인한 뒤 `main.py`의 `main` 함수와
+`observability.py/request_trace`를 사용하는 `main.py`의 `Bot/on_message` 참조를 확인합니다.
+오류 플래그가 성공이어도 빈 결과·손상된 JSON·예상 심볼/참조 누락은 실패합니다.
+출력은 도구명·상태·고정된 실패 코드로 제한하고 서버 stderr·응답 원문·예외를 출력하지 않습니다.
+180초 제한을 적용하고 사용 통계를 비활성화하며, 호스트 인증정보를 MCP 자식 환경으로 복사하지 않습니다.
+Serena가 자동 저장하는 캐시·설정·로그는 로컬 임시 경로에 두고 CI 아티팩트로 업로드하지 마세요.
+CI는 기존 Ubuntu·Windows × Python 3.11·3.13 조합을 유지하며, 오프라인 검사와 실제 MCP 조회를 구분합니다.
+이 변경은 봇·OCR·Hindsight 및 E2B 보안 하한·uv 고정값을 수정하지 않습니다.
+공식 근거(2.1.0):
+https://github.com/oraios/serena/blob/v2.1.0/src/serena/resources/serena_config.template.yml
+https://github.com/oraios/serena/blob/v2.1.0/src/serena/repl/api/lsp_api.py
+
 LangGraph 체크포인트·E2B 후보 커밋 검증 작업기는 [별도 문서](checkpoint-worker.md)를 따릅니다. 이후 Windows 암호화 키 연결을 완료했고 실제 샌드박스 생성·명령 실행·종료 및 저장소 테스트를 통과했습니다. 암호화 실행 방법은 별도 문서의 Windows 항목을 따릅니다.
 
 ## 선별한 개발 품질 기준
