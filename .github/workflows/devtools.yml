@@ -1,9 +1,9 @@
 name: Development worker checks
 on:
   push:
-    paths: ["devtools/**", ".github/workflows/devtools.yml"]
+    paths: ["devtools/**", ".serena/project.yml", ".github/workflows/devtools.yml"]
   pull_request:
-    paths: ["devtools/**", ".github/workflows/devtools.yml"]
+    paths: ["devtools/**", ".serena/project.yml", ".github/workflows/devtools.yml"]
 permissions:
   contents: read
 jobs:
@@ -52,7 +52,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      # Serena 1.7.0 runs its pinned Pyright server through uvx -p 3.13,
+      # Serena 2.1.0 runs its pinned Pyright server through uvx -p 3.13,
       # even when the Serena process itself is being checked on Python 3.11.
       - uses: actions/setup-python@v7
         with:
@@ -74,10 +74,13 @@ jobs:
         run: |
           python -m pip check
           uv --version
+          serena --version
           python devtools/trust_check.py --require-uv
       - name: Resolve Serena dependencies with the selected Python version
         run: uv pip compile --python-version "${{ matrix.python-version }}" devtools/requirements-serena.txt --output-file "${{ runner.temp }}/serena-requirements.txt"
       - name: Check the Serena CLI
         run: serena --help
+      - name: Test MCP result and query validation offline
+        run: python -m unittest discover -s devtools -p "test_serena*.py" -v
       - name: Query project symbols and references through the local MCP server
         run: python devtools/serena_check.py --cache-home "${{ runner.temp }}/serena-check"

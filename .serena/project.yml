@@ -1,5 +1,7 @@
 # Optional developer tooling; not imported by the running Discord bot.
 project_name: "discord-bot"
+# Serena 2.x defaults new homes to REPL; preserve the existing MCP tool API.
+agent_interface: tools
 language_servers: ["python"]
 encoding: "utf-8"
 ignore_all_files_in_gitignore: true
