@@ -10,9 +10,9 @@ try:
 except ImportError:
     Image = None
 try:
-    import fitz
+    import pymupdf
 except ImportError:
-    fitz = None
+    pymupdf = None
 
 
 @unittest.skipIf(Image is None, 'Pillow is an optional OCR dependency')
@@ -103,17 +103,17 @@ class ImagePreprocessingTests(unittest.TestCase):
                             self.assertEqual(result.getpixel((x, y)), (value * 30, 0, 0))
 
 
-@unittest.skipIf(Image is None or fitz is None, 'Optional PDF OCR libraries required')
+@unittest.skipIf(Image is None or pymupdf is None, 'Optional PDF OCR libraries required')
 class PDFPreprocessingTests(unittest.TestCase):
     def test_pdf_page_content_order_and_rotation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / 'fixture.pdf'
             colors = [(1, 0, 0), (0, 1, 0), (0, 0, 1)]
-            with fitz.open() as document:
+            with pymupdf.open() as document:
                 for index, color in enumerate(colors):
                     page = document.new_page(width=60, height=40)
-                    page.draw_rect(fitz.Rect(10, 10, 50, 30), color=None, fill=color)
+                    page.draw_rect(pymupdf.Rect(10, 10, 50, 30), color=None, fill=color)
                     if index == 1:
                         page.set_rotation(90)
                 document.save(source)
@@ -133,7 +133,7 @@ class PDFPreprocessingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / 'fixture.pdf'
-            with fitz.open() as document:
+            with pymupdf.open() as document:
                 for _ in range(2):
                     document.new_page(width=3000, height=4000)
                 document.save(source)
@@ -148,7 +148,7 @@ class PDFPreprocessingTests(unittest.TestCase):
             with self.subTest(pages=count), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 source = root / 'fixture.pdf'
-                with fitz.open() as document:
+                with pymupdf.open() as document:
                     for _ in range(count):
                         document.new_page(width=20, height=20)
                     document.save(source)
@@ -158,7 +158,7 @@ class PDFPreprocessingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / 'fixture.pdf'
-            with fitz.open() as document:
+            with pymupdf.open() as document:
                 for _ in range(51):
                     document.new_page()
                 document.save(source)
@@ -169,9 +169,9 @@ class PDFPreprocessingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / 'fixture.pdf'
-            with fitz.open() as document:
+            with pymupdf.open() as document:
                 document.new_page()
-                document.save(source, encryption=fitz.PDF_ENCRYPT_AES_256,
+                document.save(source, encryption=pymupdf.PDF_ENCRYPT_AES_256,
                               owner_pw='synthetic-owner', user_pw='synthetic-user')
             with self.assertRaises(ValueError):
                 prepare_pages(source, root)

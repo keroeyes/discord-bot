@@ -55,18 +55,29 @@ CUDA 12.9 기준이며 이 변경에서는 Windows RTX 4090 실기기 실행을 
 
 ## 검증
 
+PDF 전처리는 `requirements-ocr.txt`의 PyMuPDF 2.1과 `import pymupdf`를 사용합니다.
+2.1은 2.0의 import 시 초기화·CPU/스레드 오버헤드를 수정한 버전입니다.
+기존 `fitz` 호환 이름은 2.0부터 `FutureWarning`을 발생시키므로 사용하지 않습니다.
+Pillow 13 고정과 기존 입력·페이지·렌더링 제한은 유지합니다.
+PyMuPDF 2.1은 ONNX Runtime 등 전이 의존성도 설치하므로, 전처리 환경의
+`pip check` 성공을 실제 torch/CUDA 모델 환경 전체의 호환성 검증으로 해석하지 마세요.
+공식 근거: https://pypi.org/project/pymupdf/2.1/
+https://pymupdf.readthedocs.io/en/latest/changes.html
+
 `ocr-preprocessing` CI는 Ubuntu와 Windows의 Python 3.12에서
 `python -m pip install -c requirements-ocr.txt Pillow pymupdf`로 전처리 라이브러리만
 설치합니다. 별도의 버전 고정값 없이 OCR 작업자와 같은 선언을 사용하며, 설치 버전과
 선언 버전의 일치를 확인하고 로그에 남깁니다. 라이브러리 import 실패나 버전 불일치는
 실패로 처리합니다. torch·모델 다운로드와 GPU 추론은 이 작업에 포함하지 않습니다.
 
-`python -m unittest discover -s tests -p test_ocr_preprocessing.py -v`는 합성 입력으로
+`python -W error::FutureWarning -m unittest discover -s tests -p test_ocr_preprocessing.py -v`는 합성 입력으로
 투명·반투명 PNG의 흰 배경 합성, EXIF 8방향의 픽셀 위치, PDF 페이지 내용·순서·회전과
 2048px 렌더링 제한을 확인합니다. 기존 33·50쪽 허용, 51쪽·암호화 PDF 거부도 검사합니다.
 일반 테스트 환경에서는 선택 의존성이 없으면 이 검사들이 생략될 수 있으므로, CI는
 테스트 전에 Pillow와 PyMuPDF를 반드시 import하여 누락을 실패로 처리합니다.
 Windows CI 성공은 RTX 4090·CUDA·Unlimited-OCR 모델 추론 성공의 근거가 아닙니다.
+전처리 CI는 `pip check`도 실행하고, 폐기 예정 import의 재유입을 감지하도록
+`FutureWarning`을 실패로 처리합니다.
 
 `python -m unittest discover -s tests -v`는 모델 없이 합성 요청의 명령 분리,
 접근제어·공유 제한·GPU 작업 잠금·DM 전송·실패 시 비공개 처리를 검증합니다.
