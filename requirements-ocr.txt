@@ -1,7 +1,7 @@
 # Dedicated Python 3.12 GPU environment, separate from ComfyUI and Railway.
 torch==2.10.0
 torchvision==0.25.0
-transformers==4.57.1
+transformers==5.22.2
 Pillow==13.0.0
 matplotlib==3.10.8
 einops==0.8.2
